@@ -8,7 +8,6 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -19,9 +18,9 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    console.log('Starting data migration from GitHub JSON files...')
+    console.log('🚀 Iniciando migração de dados dos arquivos JSON do GitHub...')
 
-    // Lista dos arquivos JSON reais para processar - URLs completas do GitHub
+    // Lista dos 13 arquivos JSON específicos
     const jsonFiles = [
       'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_0-99.json',
       'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_100-199.json',
@@ -39,38 +38,66 @@ serve(async (req) => {
     ];
 
     let totalProcessed = 0;
+    let totalSkipped = 0;
     let totalErrors = 0;
     let migrationDetails = [];
 
-    // ETAPA 1: Limpar TODOS os dados existentes do banco
-    console.log('Clearing all existing data from database...');
-    
-    try {
-      // Deletar dados de startups e tabelas relacionadas na ordem correta
-      await supabase.from('startup_tags').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('startup_topics').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('startup_team_members').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('startup_external_urls').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      await supabase.from('startups').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      
-      console.log('All existing data cleared successfully');
-    } catch (error) {
-      console.error('Error clearing existing data:', error);
+    // Função para validar se é uma startup válida (não demo)
+    function isValidStartup(startup: any): boolean {
+      if (!startup || typeof startup !== 'object') {
+        console.log('❌ Startup inválida: não é um objeto');
+        return false;
+      }
+
+      // Verificar se tem campos obrigatórios
+      if (!startup.company_id || !startup.name) {
+        console.log('❌ Startup inválida: falta company_id ou name');
+        return false;
+      }
+
+      // Filtrar dados de demonstração
+      const demoIndicators = [
+        'demo',
+        'test',
+        'sample',
+        'example',
+        'fake',
+        'mock'
+      ];
+
+      const nameLower = startup.name.toLowerCase();
+      const companyIdLower = startup.company_id.toLowerCase();
+
+      for (const indicator of demoIndicators) {
+        if (nameLower.includes(indicator) || companyIdLower.includes(indicator)) {
+          console.log(`❌ Startup de demo detectada: ${startup.name} (${startup.company_id})`);
+          return false;
+        }
+      }
+
+      // Verificar se tem dados mínimos necessários
+      if (!startup.country || !startup.industry) {
+        console.log(`⚠️ Startup com dados incompletos: ${startup.name} - falta country ou industry`);
+        return false;
+      }
+
+      return true;
     }
 
-    // ETAPA 2: Processar arquivos JSON reais do GitHub
+    // Processar cada arquivo JSON
     for (const fileUrl of jsonFiles) {
       try {
         const fileName = fileUrl.split('/').pop();
-        console.log(`Processing ${fileName} from GitHub...`);
+        console.log(`📁 Processando ${fileName}...`);
         
         const response = await fetch(fileUrl);
         
         if (!response.ok) {
-          console.error(`Failed to fetch ${fileName}: ${response.status} ${response.statusText}`);
+          console.error(`❌ Erro ao buscar ${fileName}: ${response.status} ${response.statusText}`);
           migrationDetails.push({
             file: fileName,
             processed: 0,
+            skipped: 0,
             errors: 1,
             error: `HTTP ${response.status}: ${response.statusText}`
           });
@@ -80,26 +107,28 @@ serve(async (req) => {
 
         const data = await response.json();
         
-        if (!data || (!Array.isArray(data) && typeof data !== 'object')) {
-          console.error(`Invalid data format in ${fileName}`);
+        if (!data) {
+          console.error(`❌ Dados inválidos em ${fileName}`);
           migrationDetails.push({
             file: fileName,
             processed: 0,
+            skipped: 0,
             errors: 1,
-            error: 'Invalid JSON format'
+            error: 'Dados JSON inválidos'
           });
           totalErrors++;
           continue;
         }
 
-        // Converter objeto para array se necessário
+        // Converter para array se necessário
         const startups = Array.isArray(data) ? data : Object.values(data);
         
         if (startups.length === 0) {
-          console.warn(`No startups found in ${fileName}`);
+          console.warn(`⚠️ Nenhuma startup encontrada em ${fileName}`);
           migrationDetails.push({
             file: fileName,
             processed: 0,
+            skipped: 0,
             errors: 0,
             totalStartups: 0
           });
@@ -107,19 +136,23 @@ serve(async (req) => {
         }
 
         let batchProcessed = 0;
+        let batchSkipped = 0;
         let batchErrors = 0;
         
-        // ETAPA 3: Validar e processar cada startup
-        for (const startup of startups) {
+        console.log(`📊 Encontradas ${startups.length} startups em ${fileName}`);
+
+        // Processar cada startup
+        for (let i = 0; i < startups.length; i++) {
+          const startup = startups[i];
+          
           try {
-            // Validação rigorosa: apenas startups com dados reais
-            if (!startup.company_id || 
-                !startup.name || 
-                startup.company_id.startsWith('demo_') ||
-                startup.name.includes('Demo Startup')) {
-              console.warn(`Skipping invalid/demo startup: ${startup.company_id || 'unknown'}`);
+            // Validar startup
+            if (!isValidStartup(startup)) {
+              batchSkipped++;
               continue;
             }
+
+            console.log(`✅ Processando startup válida: ${startup.name} (${startup.company_id})`);
 
             // Inserir startup principal
             const { data: insertedStartup, error: startupError } = await supabase
@@ -151,18 +184,19 @@ serve(async (req) => {
               .single()
 
             if (startupError) {
-              console.error(`Error inserting startup ${startup.company_id}:`, startupError);
+              console.error(`❌ Erro ao inserir startup ${startup.company_id}:`, startupError);
               batchErrors++;
               continue;
             }
 
             const startupId = insertedStartup.id;
 
-            // Inserir URLs externas (apenas se válidas)
-            if (startup.external_urls && Object.keys(startup.external_urls).length > 0) {
+            // Inserir URLs externas se válidas
+            if (startup.external_urls && typeof startup.external_urls === 'object') {
               const validUrls = {};
+              
               Object.entries(startup.external_urls).forEach(([key, value]) => {
-                if (value && typeof value === 'string' && value.trim() !== '') {
+                if (value && typeof value === 'string' && value.trim() !== '' && value !== 'null') {
                   validUrls[key] = value.trim();
                 }
               });
@@ -179,16 +213,20 @@ serve(async (req) => {
                   });
 
                 if (urlError) {
-                  console.error(`Error inserting URLs for ${startup.company_id}:`, urlError);
+                  console.error(`⚠️ Erro ao inserir URLs para ${startup.company_id}:`, urlError);
                 }
               }
             }
 
-            // Processar membros da equipe
-            if (startup.attendance_ids && startup.attendance_ids.length > 0) {
+            // Processar dados de attendance_ids (membros da equipe e tópicos)
+            if (startup.attendance_ids && Array.isArray(startup.attendance_ids)) {
               for (const attendance of startup.attendance_ids) {
-                const team = attendance?.data?.attendance?.exhibitor?.team?.edges || [];
+                const attendanceData = attendance?.data?.attendance;
                 
+                if (!attendanceData) continue;
+
+                // Processar membros da equipe
+                const team = attendanceData.exhibitor?.team?.edges || [];
                 for (const memberEdge of team) {
                   const member = memberEdge.node;
                   
@@ -217,13 +255,13 @@ serve(async (req) => {
                       });
 
                     if (memberError) {
-                      console.error(`Error inserting member ${member.id}:`, memberError);
+                      console.error(`⚠️ Erro ao inserir membro ${member.id}:`, memberError);
                     }
                   }
                 }
 
                 // Processar tópicos offering
-                const offeringTopics = attendance?.data?.attendance?.offeringTopics?.edges || [];
+                const offeringTopics = attendanceData.offeringTopics?.edges || [];
                 for (const topicEdge of offeringTopics) {
                   const topic = topicEdge.node;
                   
@@ -241,13 +279,13 @@ serve(async (req) => {
                       });
 
                     if (topicError) {
-                      console.error(`Error inserting offering topic ${topic.id}:`, topicError);
+                      console.error(`⚠️ Erro ao inserir tópico offering ${topic.id}:`, topicError);
                     }
                   }
                 }
 
                 // Processar tópicos seeking
-                const seekingTopics = attendance?.data?.attendance?.seekingTopics?.edges || [];
+                const seekingTopics = attendanceData.seekingTopics?.edges || [];
                 for (const topicEdge of seekingTopics) {
                   const topic = topicEdge.node;
                   
@@ -265,17 +303,17 @@ serve(async (req) => {
                       });
 
                     if (topicError) {
-                      console.error(`Error inserting seeking topic ${topic.id}:`, topicError);
+                      console.error(`⚠️ Erro ao inserir tópico seeking ${topic.id}:`, topicError);
                     }
                   }
                 }
               }
             }
 
-            // Adicionar tags válidas
-            if (startup.tags && Array.isArray(startup.tags) && startup.tags.length > 0) {
+            // Processar tags
+            if (startup.tags && Array.isArray(startup.tags)) {
               for (const tag of startup.tags) {
-                if (tag && typeof tag === 'string' && tag.trim() !== '' && tag !== 'demo') {
+                if (tag && typeof tag === 'string' && tag.trim() !== '' && !tag.toLowerCase().includes('demo')) {
                   const { error: tagError } = await supabase
                     .from('startup_tags')
                     .upsert({
@@ -288,7 +326,7 @@ serve(async (req) => {
                     });
 
                   if (tagError) {
-                    console.error(`Error inserting tag ${tag}:`, tagError);
+                    console.error(`⚠️ Erro ao inserir tag ${tag}:`, tagError);
                   }
                 }
               }
@@ -297,39 +335,42 @@ serve(async (req) => {
             batchProcessed++;
             
           } catch (error) {
-            console.error(`Error processing startup ${startup.company_id}:`, error);
+            console.error(`❌ Erro ao processar startup ${startup?.company_id || 'unknown'}:`, error);
             batchErrors++;
           }
         }
 
         totalProcessed += batchProcessed;
+        totalSkipped += batchSkipped;
         totalErrors += batchErrors;
         
         migrationDetails.push({
           file: fileName,
           processed: batchProcessed,
+          skipped: batchSkipped,
           errors: batchErrors,
           totalStartups: startups.length
         });
 
-        console.log(`Completed ${fileName} - processed ${batchProcessed}/${startups.length} valid startups (${batchErrors} errors)`);
+        console.log(`✅ Concluído ${fileName} - processadas: ${batchProcessed}, puladas: ${batchSkipped}, erros: ${batchErrors} de ${startups.length} total`);
         
       } catch (error) {
-        console.error(`Error processing file ${fileUrl}:`, error);
+        console.error(`❌ Erro ao processar arquivo ${fileUrl}:`, error);
         totalErrors++;
         migrationDetails.push({
           file: fileUrl.split('/').pop(),
           processed: 0,
+          skipped: 0,
           errors: 1,
           error: error.message
         });
       }
     }
 
-    // ETAPA 4: Atualizar tabelas de referência com dados reais
-    console.log('Updating reference tables with real data...');
+    // Atualizar tabelas de referência com dados reais
+    console.log('📊 Atualizando tabelas de referência...');
 
-    // Extrair indústrias únicas dos dados reais
+    // Extrair indústrias únicas
     const { data: industries } = await supabase
       .from('startups')
       .select('industry')
@@ -343,10 +384,10 @@ serve(async (req) => {
           .from('industries')
           .upsert({ name: industry }, { onConflict: 'name', ignoreDuplicates: true });
       }
-      console.log(`Updated ${uniqueIndustries.length} industries`);
+      console.log(`✅ Atualizadas ${uniqueIndustries.length} indústrias`);
     }
 
-    // Extrair funding tiers únicos dos dados reais
+    // Extrair funding tiers únicos
     const { data: fundingTiers } = await supabase
       .from('startups')
       .select('funding_tier')
@@ -360,26 +401,29 @@ serve(async (req) => {
           .from('funding_tiers')
           .upsert({ name: tier }, { onConflict: 'name', ignoreDuplicates: true });
       }
-      console.log(`Updated ${uniqueFundingTiers.length} funding tiers`);
+      console.log(`✅ Atualizados ${uniqueFundingTiers.length} funding tiers`);
     }
 
     // Obter estatísticas finais
-    const { data: finalStats } = await supabase
-      .from('startups')
-      .select('id');
-
+    const { data: finalStats } = await supabase.from('startups').select('id');
     const finalCount = finalStats?.length || 0;
 
-    console.log(`Migration completed! Real startups in database: ${finalCount}, Total processed: ${totalProcessed}, Errors: ${totalErrors}`);
+    console.log(`🎉 Migração concluída com sucesso!`);
+    console.log(`📊 Estatísticas finais:`);
+    console.log(`   - Startups importadas: ${finalCount}`);
+    console.log(`   - Total processadas: ${totalProcessed}`);
+    console.log(`   - Total puladas (demo/inválidas): ${totalSkipped}`);
+    console.log(`   - Total de erros: ${totalErrors}`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         totalProcessed,
+        totalSkipped,
         totalErrors,
         finalCount,
         migrationDetails,
-        message: `Migration completed successfully. ${finalCount} real startups imported from GitHub JSON files. All demo data eliminated.`
+        message: `Migração concluída com sucesso! ${finalCount} startups válidas importadas dos arquivos JSON. Todos os dados de demonstração foram eliminados.`
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -388,7 +432,7 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Migration error:', error);
+    console.error('💥 Erro na migração:', error);
     return new Response(
       JSON.stringify({ 
         success: false, 

@@ -204,6 +204,8 @@ export function useStartups() {
   return useQuery({
     queryKey: ['startups'],
     queryFn: async () => {
+      console.log('🔍 Buscando startups do Supabase...');
+      
       const { data, error } = await supabase
         .from('startups')
         .select(`
@@ -215,11 +217,17 @@ export function useStartups() {
         `)
         .order('name');
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro ao buscar startups:', error);
+        throw error;
+      }
 
+      console.log(`✅ ${data?.length || 0} startups encontradas no Supabase`);
+      
       return (data as SupabaseStartup[]).map(convertSupabaseToLegacyFormat);
     },
     staleTime: 5 * 60 * 1000, // 5 minutos
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -307,18 +315,28 @@ export function useMigrateData() {
   
   return useMutation({
     mutationFn: async () => {
+      console.log('🚀 Iniciando migração via Edge Function...');
+      
       const { data, error } = await supabase.functions.invoke('migrate-data');
       
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Erro na migração:', error);
+        throw error;
+      }
       
+      console.log('✅ Migração concluída:', data);
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('🎉 Migração bem-sucedida, invalidando cache...');
       // Invalidar cache para recarregar dados
       queryClient.invalidateQueries({ queryKey: ['startups'] });
       queryClient.invalidateQueries({ queryKey: ['industries'] });
       queryClient.invalidateQueries({ queryKey: ['funding-tiers'] });
     },
+    onError: (error) => {
+      console.error('💥 Erro na mutação de migração:', error);
+    }
   });
 }
 

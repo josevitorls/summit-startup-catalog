@@ -10,7 +10,7 @@ import { ExportOptions } from '../components/Export/ExportOptions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight, CheckSquare, Square, Upload, Filter, Database, AlertCircle, CheckCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckSquare, Square, Upload, Filter, Database, AlertCircle, CheckCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useStartups, useMigrateData } from '../hooks/useSupabaseData';
 import { useStartupFilters } from '../hooks/useStartupFilters';
@@ -21,14 +21,26 @@ export default function Index() {
   const { state, dispatch } = useApp();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
+  const [migrationStatus, setMigrationStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const [migrationProgress, setMigrationProgress] = useState<string>('');
 
-  // Usar dados do Supabase ao invés do JSON
+  // Usar dados do Supabase
   const { data: supabaseStartups = [], isLoading, error, refetch } = useStartups();
   const migrateMutation = useMigrateData();
 
-  // Se ainda não há dados no Supabase, usar dados JSON como fallback
+  // Usar dados do Supabase se disponíveis, caso contrário usar dados JSON como fallback
   const startups = supabaseStartups.length > 0 ? supabaseStartups : state.startups;
+
+  // Detectar se ainda há dados de demonstração
+  const hasDemoData = useMemo(() => {
+    return startups.some(startup => 
+      startup.name.toLowerCase().includes('demo') || 
+      startup.company_id.toLowerCase().includes('demo') ||
+      startup.name.includes('Startup') ||
+      !startup.country ||
+      !startup.industry
+    );
+  }, [startups]);
 
   // Apply filters
   const searchFilters = { ...state.filters, search: searchQuery };
@@ -38,6 +50,16 @@ export default function Index() {
   useEffect(() => {
     dispatch({ type: 'SET_FILTERED_STARTUPS', payload: filteredStartups });
   }, [dispatch, filteredStartups]);
+
+  // Reset migration status when demo data is detected
+  useEffect(() => {
+    if (hasDemoData && supabaseStartups.length > 0) {
+      setMigrationStatus('idle');
+      setMigrationProgress('');
+    } else if (supabaseStartups.length > 0 && !hasDemoData) {
+      setMigrationStatus('success');
+    }
+  }, [hasDemoData, supabaseStartups.length]);
 
   // Pagination
   const totalPages = Math.ceil(state.filteredStartups.length / state.itemsPerPage);
@@ -117,15 +139,17 @@ export default function Index() {
 
   const handleMigrateData = async () => {
     try {
-      setMigrationProgress('Iniciando migração...');
+      setMigrationStatus('running');
+      setMigrationProgress('Iniciando migração dos dados válidos...');
       
       const result = await migrateMutation.mutateAsync();
       
       if (result.success) {
+        setMigrationStatus('success');
         setMigrationProgress('');
         toast({
           title: "Migração Concluída com Sucesso!",
-          description: `${result.finalCount} startups foram migradas para o Supabase.`,
+          description: `${result.finalCount} startups válidas foram importadas. ${result.totalSkipped} dados de demonstração foram descartados.`,
         });
         
         // Recarregar dados após migração
@@ -134,6 +158,7 @@ export default function Index() {
         throw new Error(result.error || 'Erro desconhecido na migração');
       }
     } catch (error) {
+      setMigrationStatus('error');
       setMigrationProgress('');
       console.error('Migration error:', error);
       toast({
@@ -214,29 +239,52 @@ export default function Index() {
       
       <main className="container mx-auto px-4 py-6">
         {/* Migration Status */}
-        {(supabaseStartups.length === 0 || migrationProgress) && (
-          <Card className="mb-6 border-blue-200 bg-blue-50">
+        {(migrationStatus === 'idle' || migrationStatus === 'running' || hasDemoData) && (
+          <Card className={`mb-6 ${
+            migrationStatus === 'running' ? 'border-blue-200 bg-blue-50' :
+            hasDemoData ? 'border-yellow-200 bg-yellow-50' :
+            'border-blue-200 bg-blue-50'
+          }`}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Database className="h-6 w-6 text-blue-600" />
+                  {migrationStatus === 'running' ? (
+                    <RefreshCw className="h-6 w-6 text-blue-600 animate-spin" />
+                  ) : hasDemoData ? (
+                    <Trash2 className="h-6 w-6 text-yellow-600" />
+                  ) : (
+                    <Database className="h-6 w-6 text-blue-600" />
+                  )}
                   <div>
-                    <h3 className="font-semibold text-blue-900">
-                      {migrationProgress ? 'Migração em Andamento' : 'Dados Não Migrados'}
+                    <h3 className={`font-semibold ${
+                      migrationStatus === 'running' ? 'text-blue-900' :
+                      hasDemoData ? 'text-yellow-900' :
+                      'text-blue-900'
+                    }`}>
+                      {migrationStatus === 'running' ? 'Migração em Andamento' :
+                       hasDemoData ? 'Dados de Demonstração Detectados' :
+                       'Dados Não Migrados'}
                     </h3>
-                    <p className="text-sm text-blue-700">
-                      {migrationProgress || 'Clique no botão para migrar os dados dos arquivos JSON para o Supabase.'}
+                    <p className={`text-sm ${
+                      migrationStatus === 'running' ? 'text-blue-700' :
+                      hasDemoData ? 'text-yellow-700' :
+                      'text-blue-700'
+                    }`}>
+                      {migrationProgress || 
+                       (hasDemoData ? 'Dados de demonstração foram detectados. Execute a migração para importar apenas dados válidos dos 13 arquivos JSON.' :
+                        'Execute a migração para importar dados válidos dos 13 arquivos JSON do GitHub.')}
                     </p>
                   </div>
                 </div>
-                {!migrationProgress && (
+                {migrationStatus !== 'running' && (
                   <Button 
                     onClick={handleMigrateData}
                     disabled={migrateMutation.isPending}
-                    className="bg-blue-600 hover:bg-blue-700"
+                    className={hasDemoData ? "bg-yellow-600 hover:bg-yellow-700" : "bg-blue-600 hover:bg-blue-700"}
                   >
                     <Upload className="h-4 w-4 mr-2" />
-                    {migrateMutation.isPending ? 'Migrando...' : 'Migrar Dados'}
+                    {migrateMutation.isPending ? 'Migrando...' : 
+                     hasDemoData ? 'Limpar e Migrar Dados' : 'Migrar Dados'}
                   </Button>
                 )}
               </div>
@@ -251,7 +299,7 @@ export default function Index() {
         )}
 
         {/* Success Status */}
-        {supabaseStartups.length > 0 && !migrationProgress && (
+        {migrationStatus === 'success' && !hasDemoData && supabaseStartups.length > 0 && (
           <Card className="mb-6 border-green-200 bg-green-50">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
@@ -259,7 +307,7 @@ export default function Index() {
                 <div>
                   <h3 className="font-semibold text-green-900">Dados Migrados com Sucesso</h3>
                   <p className="text-sm text-green-700">
-                    {supabaseStartups.length} startups carregadas do Supabase.
+                    {supabaseStartups.length} startups válidas carregadas do Supabase. Todos os dados de demonstração foram eliminados.
                   </p>
                 </div>
               </div>
@@ -386,7 +434,7 @@ export default function Index() {
             <Database className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
             <h2 className="text-xl font-semibold mb-4">Nenhuma Startup Encontrada</h2>
             <p className="text-muted-foreground mb-6">
-              Execute a migração de dados para carregar as startups.
+              Execute a migração de dados para carregar as startups válidas.
             </p>
           </div>
         )}
