@@ -41,15 +41,33 @@ export default function StartupDetails() {
   }
 
   const teamMembers = startup.attendance_ids.flatMap(
-    attendance => attendance.data.attendance.exhibitor.team.edges.map(edge => edge.node)
+    attendance => {
+      // Add null safety checks
+      if (!attendance?.data?.attendance?.exhibitor?.team?.edges) {
+        return [];
+      }
+      return attendance.data.attendance.exhibitor.team.edges.map(edge => edge.node);
+    }
   );
 
   const offeringTopics = startup.attendance_ids.flatMap(
-    attendance => attendance.data.attendance.offeringTopics.edges.map(edge => edge.node.name)
+    attendance => {
+      // Add null safety checks
+      if (!attendance?.data?.attendance?.offeringTopics?.edges) {
+        return [];
+      }
+      return attendance.data.attendance.offeringTopics.edges.map(edge => edge.node.name);
+    }
   );
 
   const seekingTopics = startup.attendance_ids.flatMap(
-    attendance => attendance.data.attendance.seekingTopics.edges.map(edge => edge.node.name)
+    attendance => {
+      // Add null safety checks
+      if (!attendance?.data?.attendance?.seekingTopics?.edges) {
+        return [];
+      }
+      return attendance.data.attendance.seekingTopics.edges.map(edge => edge.node.name);
+    }
   );
 
   const handleAddTag = () => {
