@@ -24,11 +24,23 @@ export function StartupCard({ startup, showSelection = false }: StartupCardProps
   };
 
   const teamMembers = startup.attendance_ids.flatMap(
-    attendance => attendance.data.attendance.exhibitor.team.edges.map(edge => edge.node)
+    attendance => {
+      // Add null safety checks
+      if (!attendance?.data?.attendance?.exhibitor?.team?.edges) {
+        return [];
+      }
+      return attendance.data.attendance.exhibitor.team.edges.map(edge => edge.node);
+    }
   );
 
   const offeringTopics = startup.attendance_ids.flatMap(
-    attendance => attendance.data.attendance.offeringTopics.edges.map(edge => edge.node.name)
+    attendance => {
+      // Add null safety checks
+      if (!attendance?.data?.attendance?.offeringTopics?.edges) {
+        return [];
+      }
+      return attendance.data.attendance.offeringTopics.edges.map(edge => edge.node.name);
+    }
   );
 
   return (
