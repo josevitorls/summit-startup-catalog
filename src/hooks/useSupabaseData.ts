@@ -121,7 +121,8 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
                 githubUrl: member.github_url,
                 facebookUrl: member.facebook_url,
                 __typename: 'Attendee'
-              }
+              },
+              __typename: 'AttendeeEdge'
             }))
           }
         },
@@ -133,7 +134,8 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
                 id: topic.topic_id,
                 name: topic.topic_name,
                 __typename: 'Topic'
-              }
+              },
+              __typename: 'TopicEdge'
             })),
           __typename: 'TopicConnection'
         },
@@ -145,7 +147,8 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
                 id: topic.topic_id,
                 name: topic.topic_name,
                 __typename: 'Topic'
-              }
+              },
+              __typename: 'TopicEdge'
             })),
           __typename: 'TopicConnection'
         }
