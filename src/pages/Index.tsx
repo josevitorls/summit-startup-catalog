@@ -10,7 +10,7 @@ import { ExportOptions } from '../components/Export/ExportOptions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight, CheckSquare, Square, Upload, Filter } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckSquare, Square, Upload, Filter, Database, AlertCircle, CheckCircle } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useStartups, useMigrateData } from '../hooks/useSupabaseData';
 import { useStartupFilters } from '../hooks/useStartupFilters';
@@ -21,9 +21,10 @@ export default function Index() {
   const { state, dispatch } = useApp();
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
+  const [migrationProgress, setMigrationProgress] = useState<string>('');
 
   // Usar dados do Supabase ao invés do JSON
-  const { data: supabaseStartups = [], isLoading, error } = useStartups();
+  const { data: supabaseStartups = [], isLoading, error, refetch } = useStartups();
   const migrateMutation = useMigrateData();
 
   // Se ainda não há dados no Supabase, usar dados JSON como fallback
@@ -62,7 +63,7 @@ export default function Index() {
       id: 'womenFounder',
       label: 'Women Founder',
       count: startups.filter(s => s.startup_women_founder).length,
-      isActive: false // Não está nos filtros atuais
+      isActive: false
     }
   ];
 
@@ -116,15 +117,28 @@ export default function Index() {
 
   const handleMigrateData = async () => {
     try {
-      await migrateMutation.mutateAsync();
-      toast({
-        title: "Migração Concluída",
-        description: "Todos os dados foram migrados para o Supabase com sucesso!",
-      });
+      setMigrationProgress('Iniciando migração...');
+      
+      const result = await migrateMutation.mutateAsync();
+      
+      if (result.success) {
+        setMigrationProgress('');
+        toast({
+          title: "Migração Concluída com Sucesso!",
+          description: `${result.finalCount} startups foram migradas para o Supabase.`,
+        });
+        
+        // Recarregar dados após migração
+        refetch();
+      } else {
+        throw new Error(result.error || 'Erro desconhecido na migração');
+      }
     } catch (error) {
+      setMigrationProgress('');
+      console.error('Migration error:', error);
       toast({
         title: "Erro na Migração",
-        description: "Ocorreu um erro durante a migração dos dados.",
+        description: error.message || "Ocorreu um erro durante a migração dos dados.",
         variant: "destructive",
       });
     }
@@ -160,16 +174,11 @@ export default function Index() {
         <div className="container mx-auto px-4 py-8">
           <div className="text-center">
             <div className="animate-pulse">
+              <Database className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
               <div className="h-8 bg-muted rounded-lg w-64 mx-auto mb-4"></div>
               <div className="h-4 bg-muted rounded-lg w-48 mx-auto"></div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
-              {[...Array(6)].map((_, i) => (
-                <div key={i} className="animate-pulse">
-                  <div className="bg-muted rounded-lg h-64"></div>
-                </div>
-              ))}
-            </div>
+            <p className="text-muted-foreground mt-4">Carregando dados das startups...</p>
           </div>
         </div>
       </div>
@@ -181,10 +190,19 @@ export default function Index() {
       <div className="min-h-screen bg-background">
         <Header />
         <div className="container mx-auto px-4 py-8">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold mb-4 text-destructive">Erro</h1>
-            <p className="text-muted-foreground">{error.message}</p>
-          </div>
+          <Card className="border-destructive">
+            <CardContent className="p-6 text-center">
+              <AlertCircle className="h-12 w-12 mx-auto mb-4 text-destructive" />
+              <h1 className="text-2xl font-bold mb-4 text-destructive">Erro ao Carregar Dados</h1>
+              <p className="text-muted-foreground mb-6">{error.message}</p>
+              <Button 
+                onClick={() => refetch()}
+                variant="outline"
+              >
+                Tentar Novamente
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -195,25 +213,55 @@ export default function Index() {
       <Header />
       
       <main className="container mx-auto px-4 py-6">
-        {/* Migration Alert */}
-        {supabaseStartups.length === 0 && startups.length > 0 && (
+        {/* Migration Status */}
+        {(supabaseStartups.length === 0 || migrationProgress) && (
           <Card className="mb-6 border-blue-200 bg-blue-50">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Database className="h-6 w-6 text-blue-600" />
+                  <div>
+                    <h3 className="font-semibold text-blue-900">
+                      {migrationProgress ? 'Migração em Andamento' : 'Dados Não Migrados'}
+                    </h3>
+                    <p className="text-sm text-blue-700">
+                      {migrationProgress || 'Clique no botão para migrar os dados dos arquivos JSON para o Supabase.'}
+                    </p>
+                  </div>
+                </div>
+                {!migrationProgress && (
+                  <Button 
+                    onClick={handleMigrateData}
+                    disabled={migrateMutation.isPending}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    {migrateMutation.isPending ? 'Migrando...' : 'Migrar Dados'}
+                  </Button>
+                )}
+              </div>
+              {migrationProgress && (
+                <div className="mt-3 flex items-center gap-2">
+                  <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                  <span className="text-sm text-blue-700">{migrationProgress}</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Success Status */}
+        {supabaseStartups.length > 0 && !migrationProgress && (
+          <Card className="mb-6 border-green-200 bg-green-50">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <CheckCircle className="h-6 w-6 text-green-600" />
                 <div>
-                  <h3 className="font-semibold text-blue-900">Migração Necessária</h3>
-                  <p className="text-sm text-blue-700">
-                    Os dados ainda estão em arquivos JSON. Migre para o Supabase para melhor performance.
+                  <h3 className="font-semibold text-green-900">Dados Migrados com Sucesso</h3>
+                  <p className="text-sm text-green-700">
+                    {supabaseStartups.length} startups carregadas do Supabase.
                   </p>
                 </div>
-                <Button 
-                  onClick={handleMigrateData}
-                  disabled={migrateMutation.isPending}
-                  className="bg-blue-600 hover:bg-blue-700"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  {migrateMutation.isPending ? 'Migrando...' : 'Migrar Dados'}
-                </Button>
               </div>
             </CardContent>
           </Card>
@@ -332,6 +380,30 @@ export default function Index() {
           </div>
         )}
 
+        {/* Empty State */}
+        {startups.length === 0 && !isLoading && (
+          <div className="text-center py-12">
+            <Database className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+            <h2 className="text-xl font-semibold mb-4">Nenhuma Startup Encontrada</h2>
+            <p className="text-muted-foreground mb-6">
+              Execute a migração de dados para carregar as startups.
+            </p>
+          </div>
+        )}
+
+        {/* No Results */}
+        {startups.length > 0 && state.filteredStartups.length === 0 && (
+          <div className="text-center py-12">
+            <h2 className="text-xl font-semibold mb-4">Nenhum Resultado</h2>
+            <p className="text-muted-foreground mb-6">
+              Tente ajustar os filtros para encontrar startups.
+            </p>
+            <Button variant="outline" onClick={handleClearQuickFilters}>
+              Limpar Filtros
+            </Button>
+          </div>
+        )}
+
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-center gap-2 mt-8">
@@ -374,9 +446,11 @@ export default function Index() {
         )}
 
         {/* Results info */}
-        <div className="text-center mt-4 text-sm text-muted-foreground">
-          Mostrando {startIndex + 1}-{Math.min(endIndex, state.filteredStartups.length)} de {state.filteredStartups.length} startups
-        </div>
+        {state.filteredStartups.length > 0 && (
+          <div className="text-center mt-4 text-sm text-muted-foreground">
+            Mostrando {startIndex + 1}-{Math.min(endIndex, state.filteredStartups.length)} de {state.filteredStartups.length} startups
+          </div>
+        )}
       </main>
     </div>
   );
