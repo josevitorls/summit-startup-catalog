@@ -20,21 +20,21 @@ serve(async (req) => {
 
     console.log('🚀 Iniciando migração de dados dos arquivos JSON do GitHub...')
 
-    // Lista dos 13 arquivos JSON específicos
+    // URLs corretas do seu repositório josevitorls/summit-startup-catalog
     const jsonFiles = [
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_0-99.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_100-199.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_200-299.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_300-399.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_400-499.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_500-599.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_600-699.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_700-799.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_800-899.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_900-999.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_1000-1099.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_1100-1199.json',
-      'https://raw.githubusercontent.com/Collince-Okeyo/startup-directory/main/processed_batch_1200-1277.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_0-99.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_100-199.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_200-299.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_300-399.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_400-499.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_500-599.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_600-699.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_700-799.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_800-899.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_900-999.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_1000-1099.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_1100-1199.json',
+      'https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/processed_batch_1200-1277.json',
     ];
 
     let totalProcessed = 0;
@@ -55,19 +55,16 @@ serve(async (req) => {
         return false;
       }
 
-      // Filtrar dados de demonstração
+      // Filtrar dados de demonstração mais rigorosamente
       const demoIndicators = [
-        'demo',
-        'test',
-        'sample',
-        'example',
-        'fake',
-        'mock'
+        'demo', 'test', 'sample', 'example', 'fake', 'mock', 'placeholder',
+        'template', 'default', 'sandbox', 'trial', 'dummy'
       ];
 
       const nameLower = startup.name.toLowerCase();
       const companyIdLower = startup.company_id.toLowerCase();
 
+      // Verificar indicadores de demo no nome e company_id
       for (const indicator of demoIndicators) {
         if (nameLower.includes(indicator) || companyIdLower.includes(indicator)) {
           console.log(`❌ Startup de demo detectada: ${startup.name} (${startup.company_id})`);
@@ -75,9 +72,16 @@ serve(async (req) => {
         }
       }
 
-      // Verificar se tem dados mínimos necessários
-      if (!startup.country || !startup.industry) {
-        console.log(`⚠️ Startup com dados incompletos: ${startup.name} - falta country ou industry`);
+      // Verificar se tem dados mínimos necessários para ser uma startup real
+      if (!startup.country && !startup.city && !startup.industry) {
+        console.log(`⚠️ Startup com dados muito incompletos: ${startup.name} - sem localização ou indústria`);
+        return false;
+      }
+
+      // Verificar se o nome não é muito genérico
+      const genericNames = ['startup', 'company', 'business', 'enterprise', 'corporation'];
+      if (genericNames.some(generic => nameLower === generic || nameLower.startsWith(generic + ' '))) {
+        console.log(`❌ Nome de startup muito genérico: ${startup.name}`);
         return false;
       }
 
@@ -94,6 +98,9 @@ serve(async (req) => {
         
         if (!response.ok) {
           console.error(`❌ Erro ao buscar ${fileName}: ${response.status} ${response.statusText}`);
+          if (response.status === 404) {
+            console.error(`📝 DICA: O arquivo ${fileName} não foi encontrado. Verifique se o repositório está público ou se o arquivo existe.`);
+          }
           migrationDetails.push({
             file: fileName,
             processed: 0,
@@ -421,9 +428,11 @@ serve(async (req) => {
         totalProcessed,
         totalSkipped,
         totalErrors,
-        finalCount,
+        finalCount: finalCount || 0,
         migrationDetails,
-        message: `Migração concluída com sucesso! ${finalCount} startups válidas importadas dos arquivos JSON. Todos os dados de demonstração foram eliminados.`
+        message: totalErrors > 0 
+          ? `Migração parcial: ${totalProcessed} startups importadas, mas ${totalErrors} arquivos falharam. Verifique se o repositório está público.`
+          : `Migração concluída com sucesso! ${totalProcessed} startups válidas importadas dos arquivos JSON.`
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

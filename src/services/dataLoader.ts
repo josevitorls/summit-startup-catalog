@@ -1,6 +1,7 @@
 
 import { Startup } from '../types/startup';
 
+// URLs corretas do repositório josevitorls/summit-startup-catalog
 const JSON_FILES = [
   'processed_batch_0-99.json',
   'processed_batch_100-199.json',
