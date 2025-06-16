@@ -80,11 +80,18 @@ export function Header() {
               </div>
             )}
 
-            {/* Filters Button */}
+            {/* Navigation Links */}
             <Link to="/filters">
               <Button variant="outline" size="sm">
                 <Filter className="h-4 w-4 mr-2" />
                 Filtros
+              </Button>
+            </Link>
+
+            <Link to="/kanban">
+              <Button variant="outline" size="sm">
+                <Kanban className="h-4 w-4 mr-2" />
+                Kanban
               </Button>
             </Link>
           </div>

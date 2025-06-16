@@ -159,6 +159,78 @@ export type Database = {
           },
         ]
       }
+      funding_tiers: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+        }
+        Relationships: []
+      }
+      industries: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+        }
+        Relationships: []
+      }
+      predefined_tags: {
+        Row: {
+          category: string | null
+          color: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+        }
+        Insert: {
+          category?: string | null
+          color?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+        }
+        Update: {
+          category?: string | null
+          color?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+        }
+        Relationships: []
+      }
       relation_services: {
         Row: {
           created_at: string | null
@@ -225,12 +297,341 @@ export type Database = {
         }
         Relationships: []
       }
+      startup_comments: {
+        Row: {
+          content: string
+          created_at: string | null
+          id: string
+          startup_id: string | null
+          updated_at: string | null
+          user_id: string | null
+          user_name: string
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          id?: string
+          startup_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+          user_name: string
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          id?: string
+          startup_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+          user_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "startup_comments_startup_id_fkey"
+            columns: ["startup_id"]
+            isOneToOne: false
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      startup_external_urls: {
+        Row: {
+          alternative_website: string | null
+          angellist: string | null
+          created_at: string | null
+          crunchbase: string | null
+          facebook: string | null
+          homepage: string | null
+          id: string
+          instagram: string | null
+          linkedin: string | null
+          startup_id: string | null
+          twitter: string | null
+          youtube: string | null
+        }
+        Insert: {
+          alternative_website?: string | null
+          angellist?: string | null
+          created_at?: string | null
+          crunchbase?: string | null
+          facebook?: string | null
+          homepage?: string | null
+          id?: string
+          instagram?: string | null
+          linkedin?: string | null
+          startup_id?: string | null
+          twitter?: string | null
+          youtube?: string | null
+        }
+        Update: {
+          alternative_website?: string | null
+          angellist?: string | null
+          created_at?: string | null
+          crunchbase?: string | null
+          facebook?: string | null
+          homepage?: string | null
+          id?: string
+          instagram?: string | null
+          linkedin?: string | null
+          startup_id?: string | null
+          twitter?: string | null
+          youtube?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "startup_external_urls_startup_id_fkey"
+            columns: ["startup_id"]
+            isOneToOne: false
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      startup_tags: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          id: string
+          startup_id: string | null
+          tag_name: string
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          startup_id?: string | null
+          tag_name: string
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          startup_id?: string | null
+          tag_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "startup_tags_startup_id_fkey"
+            columns: ["startup_id"]
+            isOneToOne: false
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      startup_team_members: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          city: string | null
+          country_name: string | null
+          created_at: string | null
+          email: string | null
+          facebook_url: string | null
+          first_name: string | null
+          github_url: string | null
+          id: string
+          industry_name: string | null
+          job_title: string | null
+          last_name: string | null
+          member_id: string
+          name: string
+          startup_id: string | null
+          twitter_url: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          city?: string | null
+          country_name?: string | null
+          created_at?: string | null
+          email?: string | null
+          facebook_url?: string | null
+          first_name?: string | null
+          github_url?: string | null
+          id?: string
+          industry_name?: string | null
+          job_title?: string | null
+          last_name?: string | null
+          member_id: string
+          name: string
+          startup_id?: string | null
+          twitter_url?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          city?: string | null
+          country_name?: string | null
+          created_at?: string | null
+          email?: string | null
+          facebook_url?: string | null
+          first_name?: string | null
+          github_url?: string | null
+          id?: string
+          industry_name?: string | null
+          job_title?: string | null
+          last_name?: string | null
+          member_id?: string
+          name?: string
+          startup_id?: string | null
+          twitter_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "startup_team_members_startup_id_fkey"
+            columns: ["startup_id"]
+            isOneToOne: false
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      startup_topics: {
+        Row: {
+          created_at: string | null
+          id: string
+          startup_id: string | null
+          topic_id: string
+          topic_name: string
+          topic_type: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          startup_id?: string | null
+          topic_id: string
+          topic_name: string
+          topic_type: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          startup_id?: string | null
+          topic_id?: string
+          topic_name?: string
+          topic_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "startup_topics_startup_id_fkey"
+            columns: ["startup_id"]
+            isOneToOne: false
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      startups: {
+        Row: {
+          city: string | null
+          company_id: string
+          country: string | null
+          created_at: string | null
+          elevator_pitch: string | null
+          endorsed_by: string | null
+          exhibition_date: string | null
+          funding_tier: string | null
+          fundraising: boolean | null
+          id: string
+          industry: string | null
+          kanban_column: string | null
+          logo_url: string | null
+          meet_investors: boolean | null
+          name: string
+          province: string | null
+          show_in_kanban: boolean | null
+          startup_black_founder: boolean | null
+          startup_indigenous_founder: boolean | null
+          startup_women_founder: boolean | null
+          updated_at: string | null
+        }
+        Insert: {
+          city?: string | null
+          company_id: string
+          country?: string | null
+          created_at?: string | null
+          elevator_pitch?: string | null
+          endorsed_by?: string | null
+          exhibition_date?: string | null
+          funding_tier?: string | null
+          fundraising?: boolean | null
+          id?: string
+          industry?: string | null
+          kanban_column?: string | null
+          logo_url?: string | null
+          meet_investors?: boolean | null
+          name: string
+          province?: string | null
+          show_in_kanban?: boolean | null
+          startup_black_founder?: boolean | null
+          startup_indigenous_founder?: boolean | null
+          startup_women_founder?: boolean | null
+          updated_at?: string | null
+        }
+        Update: {
+          city?: string | null
+          company_id?: string
+          country?: string | null
+          created_at?: string | null
+          elevator_pitch?: string | null
+          endorsed_by?: string | null
+          exhibition_date?: string | null
+          funding_tier?: string | null
+          fundraising?: boolean | null
+          id?: string
+          industry?: string | null
+          kanban_column?: string | null
+          logo_url?: string | null
+          meet_investors?: boolean | null
+          name?: string
+          province?: string | null
+          show_in_kanban?: boolean | null
+          startup_black_founder?: boolean | null
+          startup_indigenous_founder?: boolean | null
+          startup_women_founder?: boolean | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      gtrgm_compress: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      gtrgm_decompress: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      gtrgm_in: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      gtrgm_options: {
+        Args: { "": unknown }
+        Returns: undefined
+      }
+      gtrgm_out: {
+        Args: { "": unknown }
+        Returns: unknown
+      }
+      set_limit: {
+        Args: { "": number }
+        Returns: number
+      }
+      show_limit: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
+      show_trgm: {
+        Args: { "": string }
+        Returns: string[]
+      }
     }
     Enums: {
       [_ in never]: never

@@ -6,34 +6,25 @@ import { StartupList } from '../components/StartupList/StartupList';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight, Download, CheckSquare, Square } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, CheckSquare, Square, Upload } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
-import { loadAllStartups, normalizeStartupData } from '../services/dataLoader';
+import { useStartups, useMigrateData } from '../hooks/useSupabaseData';
 import { useStartupFilters } from '../hooks/useStartupFilters';
+import { useToast } from '@/hooks/use-toast';
 
 export default function Index() {
   const { state, dispatch } = useApp();
+  const { toast } = useToast();
 
-  // Load data on mount
-  useEffect(() => {
-    const loadData = async () => {
-      dispatch({ type: 'SET_LOADING', payload: true });
-      try {
-        const rawStartups = await loadAllStartups();
-        const normalizedStartups = normalizeStartupData(rawStartups);
-        dispatch({ type: 'SET_STARTUPS', payload: normalizedStartups });
-      } catch (error) {
-        dispatch({ type: 'SET_ERROR', payload: 'Erro ao carregar dados das startups' });
-      }
-    };
+  // Usar dados do Supabase ao invés do JSON
+  const { data: supabaseStartups = [], isLoading, error } = useStartups();
+  const migrateMutation = useMigrateData();
 
-    if (state.startups.length === 0) {
-      loadData();
-    }
-  }, [dispatch, state.startups.length]);
+  // Se ainda não há dados no Supabase, usar dados JSON como fallback
+  const startups = supabaseStartups.length > 0 ? supabaseStartups : state.startups;
 
   // Apply filters
-  const filteredStartups = useStartupFilters(state.startups, state.filters);
+  const filteredStartups = useStartupFilters(startups, state.filters);
 
   // Update filtered startups in state when filters change
   useEffect(() => {
@@ -60,8 +51,24 @@ export default function Index() {
     dispatch({ type: 'CLEAR_SELECTION' });
   };
 
+  const handleMigrateData = async () => {
+    try {
+      await migrateMutation.mutateAsync();
+      toast({
+        title: "Migração Concluída",
+        description: "Todos os dados foram migrados para o Supabase com sucesso!",
+      });
+    } catch (error) {
+      toast({
+        title: "Erro na Migração",
+        description: "Ocorreu um erro durante a migração dos dados.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleExportCSV = () => {
-    const selectedStartups = state.startups.filter(s => 
+    const selectedStartups = startups.filter(s => 
       state.selectedStartups.has(s.company_id)
     );
 
@@ -129,7 +136,7 @@ export default function Index() {
     return { fundraisingCount, meetInvestorsCount, countries, industries };
   }, [state.filteredStartups]);
 
-  if (state.loading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
         <Header />
@@ -152,14 +159,14 @@ export default function Index() {
     );
   }
 
-  if (state.error) {
+  if (error) {
     return (
       <div className="min-h-screen bg-background">
         <Header />
         <div className="container mx-auto px-4 py-8">
           <div className="text-center">
             <h1 className="text-2xl font-bold mb-4 text-destructive">Erro</h1>
-            <p className="text-muted-foreground">{state.error}</p>
+            <p className="text-muted-foreground">{error.message}</p>
           </div>
         </div>
       </div>
@@ -171,6 +178,30 @@ export default function Index() {
       <Header />
       
       <main className="container mx-auto px-4 py-6">
+        {/* Migration Alert */}
+        {supabaseStartups.length === 0 && startups.length > 0 && (
+          <Card className="mb-6 border-blue-200 bg-blue-50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-blue-900">Migração Necessária</h3>
+                  <p className="text-sm text-blue-700">
+                    Os dados ainda estão em arquivos JSON. Migre para o Supabase para melhor performance.
+                  </p>
+                </div>
+                <Button 
+                  onClick={handleMigrateData}
+                  disabled={migrateMutation.isPending}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {migrateMutation.isPending ? 'Migrando...' : 'Migrar Dados'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <Card>
@@ -266,13 +297,13 @@ export default function Index() {
           <div className="text-center py-12">
             <h2 className="text-xl font-semibold mb-4">Visualização Kanban</h2>
             <p className="text-muted-foreground mb-6">
-              A visualização Kanban será implementada em breve.
+              Use a página Kanban dedicada para uma experiência completa.
             </p>
             <Button
               variant="outline"
-              onClick={() => dispatch({ type: 'SET_VIEW_MODE', payload: 'cards' })}
+              onClick={() => window.location.href = '/kanban'}
             >
-              Voltar para Cards
+              Ir para Kanban
             </Button>
           </div>
         )}
