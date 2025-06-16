@@ -226,7 +226,7 @@ export default function Filters() {
                     id={`country-${country}`}
                     checked={selectedCountries.includes(country)}
                     onCheckedChange={(checked) => {
-                      if (checked) {
+                      if (checked === true) {
                         setSelectedCountries([...selectedCountries, country]);
                       } else {
                         setSelectedCountries(selectedCountries.filter(c => c !== country));
@@ -253,7 +253,7 @@ export default function Filters() {
                     id={`industry-${industry}`}
                     checked={selectedIndustries.includes(industry)}
                     onCheckedChange={(checked) => {
-                      if (checked) {
+                      if (checked === true) {
                         setSelectedIndustries([...selectedIndustries, industry]);
                       } else {
                         setSelectedIndustries(selectedIndustries.filter(i => i !== industry));
@@ -280,7 +280,7 @@ export default function Filters() {
                     id={`tier-${tier}`}
                     checked={selectedFundingTiers.includes(tier)}
                     onCheckedChange={(checked) => {
-                      if (checked) {
+                      if (checked === true) {
                         setSelectedFundingTiers([...selectedFundingTiers, tier]);
                       } else {
                         setSelectedFundingTiers(selectedFundingTiers.filter(t => t !== tier));
@@ -307,7 +307,7 @@ export default function Filters() {
                     id={`tag-${tag.id}`}
                     checked={selectedTags.includes(tag.name)}
                     onCheckedChange={(checked) => {
-                      if (checked) {
+                      if (checked === true) {
                         setSelectedTags([...selectedTags, tag.name]);
                       } else {
                         setSelectedTags(selectedTags.filter(t => t !== tag.name));
@@ -332,7 +332,7 @@ export default function Filters() {
                 <Checkbox
                   id="fundraising"
                   checked={fundraisingOnly}
-                  onCheckedChange={setFundraisingOnly}
+                  onCheckedChange={(checked) => setFundraisingOnly(checked === true)}
                 />
                 <label htmlFor="fundraising" className="text-sm">
                   Apenas Fundraising
@@ -342,7 +342,7 @@ export default function Filters() {
                 <Checkbox
                   id="meet-investors"
                   checked={meetInvestorsOnly}
-                  onCheckedChange={setMeetInvestorsOnly}
+                  onCheckedChange={(checked) => setMeetInvestorsOnly(checked === true)}
                 />
                 <label htmlFor="meet-investors" className="text-sm">
                   Meet Investors
@@ -352,7 +352,7 @@ export default function Filters() {
                 <Checkbox
                   id="women-founder"
                   checked={womenFounderOnly}
-                  onCheckedChange={setWomenFounderOnly}
+                  onCheckedChange={(checked) => setWomenFounderOnly(checked === true)}
                 />
                 <label htmlFor="women-founder" className="text-sm">
                   Women Founder

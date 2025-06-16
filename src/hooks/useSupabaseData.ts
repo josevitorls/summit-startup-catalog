@@ -74,24 +74,52 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
   const attendanceIds = [{
     data: {
       attendance: {
+        id: 'mock-id',
+        role: 'exhibitor',
+        name: supabaseStartup.name,
+        avatarUrl: supabaseStartup.logo_url,
+        firstName: '',
+        lastName: '',
+        twitterUrl: '',
+        githubUrl: '',
+        facebookUrl: '',
+        jobTitle: '',
+        companyName: supabaseStartup.name,
+        city: supabaseStartup.city,
+        country: supabaseStartup.country ? { id: 'mock', name: supabaseStartup.country, __typename: 'Country' } : undefined,
+        industry: supabaseStartup.industry ? { id: 'mock', name: supabaseStartup.industry, __typename: 'Industry' } : undefined,
+        email: '',
+        bio: supabaseStartup.elevator_pitch || '',
+        __typename: 'Attendance',
+        talks: [],
         exhibitor: {
+          id: supabaseStartup.company_id,
+          company: {
+            id: supabaseStartup.company_id,
+            name: supabaseStartup.name,
+            logoUrl: supabaseStartup.logo_url || '',
+            countryName: supabaseStartup.country || '',
+            __typename: 'Company'
+          },
           team: {
             edges: teamMembers.map(member => ({
               node: {
                 id: member.member_id,
                 name: member.name,
+                role: member.job_title || '',
+                companyName: supabaseStartup.name,
                 jobTitle: member.job_title || '',
-                bio: member.bio || '',
                 avatarUrl: member.avatar_url,
                 firstName: member.first_name,
                 lastName: member.last_name,
+                city: member.city,
+                country: member.country_name ? { id: 'mock', name: member.country_name, __typename: 'Country' } : undefined,
+                industry: member.industry_name ? { id: 'mock', name: member.industry_name, __typename: 'Industry' } : undefined,
                 email: member.email,
+                bio: member.bio || '',
                 twitterUrl: member.twitter_url,
                 githubUrl: member.github_url,
                 facebookUrl: member.facebook_url,
-                city: member.city,
-                country: member.country_name ? { name: member.country_name } : undefined,
-                industry: member.industry_name ? { name: member.industry_name } : undefined,
                 __typename: 'Attendee'
               }
             }))
@@ -106,7 +134,8 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
                 name: topic.topic_name,
                 __typename: 'Topic'
               }
-            }))
+            })),
+          __typename: 'TopicConnection'
         },
         seekingTopics: {
           edges: topics
@@ -117,7 +146,8 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
                 name: topic.topic_name,
                 __typename: 'Topic'
               }
-            }))
+            })),
+          __typename: 'TopicConnection'
         }
       }
     }
@@ -160,7 +190,10 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
     },
     attendance_ids: attendanceIds,
     tags,
-    selected: false
+    selected: false,
+    // Adicionar propriedades do Kanban
+    show_in_kanban: supabaseStartup.show_in_kanban,
+    kanban_column: supabaseStartup.kanban_column
   };
 }
 

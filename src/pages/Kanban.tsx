@@ -228,7 +228,7 @@ export default function Kanban() {
               </Button>
             </div>
           </CardContent>
-        </Card>
+        </div>
       )}
     </div>
   );

@@ -147,6 +147,9 @@ export interface Startup {
   // Custom fields for our app
   tags?: string[];
   selected?: boolean;
+  // Kanban fields
+  show_in_kanban?: boolean;
+  kanban_column?: string;
 }
 
 export interface Comment {
