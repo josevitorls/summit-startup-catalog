@@ -1,20 +1,26 @@
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Header } from '../components/Layout/Header';
 import { StartupCard } from '../components/StartupCard/StartupCard';
 import { StartupList } from '../components/StartupList/StartupList';
+import { StartupStats } from '../components/Analytics/StartupStats';
+import { GlobalSearch } from '../components/Search/GlobalSearch';
+import { QuickFilters } from '../components/StartupFilters/QuickFilters';
+import { ExportOptions } from '../components/Export/ExportOptions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight, Download, CheckSquare, Square, Upload } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckSquare, Square, Upload, Filter } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { useStartups, useMigrateData } from '../hooks/useSupabaseData';
 import { useStartupFilters } from '../hooks/useStartupFilters';
 import { useToast } from '@/hooks/use-toast';
+import { Link } from 'react-router-dom';
 
 export default function Index() {
   const { state, dispatch } = useApp();
   const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Usar dados do Supabase ao invés do JSON
   const { data: supabaseStartups = [], isLoading, error } = useStartups();
@@ -24,7 +30,8 @@ export default function Index() {
   const startups = supabaseStartups.length > 0 ? supabaseStartups : state.startups;
 
   // Apply filters
-  const filteredStartups = useStartupFilters(startups, state.filters);
+  const searchFilters = { ...state.filters, search: searchQuery };
+  const filteredStartups = useStartupFilters(startups, searchFilters);
 
   // Update filtered startups in state when filters change
   useEffect(() => {
@@ -36,6 +43,62 @@ export default function Index() {
   const startIndex = (state.currentPage - 1) * state.itemsPerPage;
   const endIndex = startIndex + state.itemsPerPage;
   const currentStartups = state.filteredStartups.slice(startIndex, endIndex);
+
+  // Quick filters
+  const quickFilters = [
+    {
+      id: 'fundraising',
+      label: 'Fundraising',
+      count: startups.filter(s => s.fundraising).length,
+      isActive: state.filters.fundraising === true
+    },
+    {
+      id: 'meetInvestors',
+      label: 'Meet Investors',
+      count: startups.filter(s => s.meet_investors).length,
+      isActive: state.filters.meetInvestors === true
+    },
+    {
+      id: 'womenFounder',
+      label: 'Women Founder',
+      count: startups.filter(s => s.startup_women_founder).length,
+      isActive: false // Não está nos filtros atuais
+    }
+  ];
+
+  const handleQuickFilterToggle = (filterId: string) => {
+    switch (filterId) {
+      case 'fundraising':
+        dispatch({
+          type: 'SET_FILTERS',
+          payload: {
+            ...state.filters,
+            fundraising: state.filters.fundraising === true ? undefined : true
+          }
+        });
+        break;
+      case 'meetInvestors':
+        dispatch({
+          type: 'SET_FILTERS',
+          payload: {
+            ...state.filters,
+            meetInvestors: state.filters.meetInvestors === true ? undefined : true
+          }
+        });
+        break;
+    }
+  };
+
+  const handleClearQuickFilters = () => {
+    dispatch({
+      type: 'SET_FILTERS',
+      payload: {
+        ...state.filters,
+        fundraising: undefined,
+        meetInvestors: undefined
+      }
+    });
+  };
 
   const handlePageChange = (page: number) => {
     dispatch({ type: 'SET_PAGE', payload: page });
@@ -67,73 +130,27 @@ export default function Index() {
     }
   };
 
-  const handleExportCSV = () => {
-    const selectedStartups = startups.filter(s => 
-      state.selectedStartups.has(s.company_id)
-    );
-
-    if (selectedStartups.length === 0) {
-      alert('Nenhuma startup selecionada para exportação');
-      return;
-    }
-
-    const csvHeaders = [
-      'Nome',
-      'Cidade',
-      'País',
-      'Indústria',
-      'Descrição',
-      'Fundraising',
-      'Meet Investors',
-      'Website',
-      'LinkedIn',
-      'Tags',
-      'Equipe'
-    ];
-
-    const csvData = selectedStartups.map(startup => {
-      const teamMembers = startup.attendance_ids.flatMap(
-        attendance => attendance.data.attendance.exhibitor.team.edges.map(edge => edge.node.name)
-      );
-
-      return [
-        startup.name,
-        startup.city,
-        startup.country,
-        startup.industry,
-        startup.elevator_pitch.replace(/"/g, '""'),
-        startup.fundraising ? 'Sim' : 'Não',
-        startup.meet_investors ? 'Sim' : 'Não',
-        startup.external_urls.homepage || '',
-        startup.external_urls.linkedin || '',
-        startup.tags?.join('; ') || '',
-        teamMembers.join('; ')
-      ].map(field => `"${field}"`);
-    });
-
-    const csvContent = [csvHeaders, ...csvData]
-      .map(row => row.join(','))
-      .join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', 'startups_web_summit_rio_2025.csv');
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   // Stats
   const stats = useMemo(() => {
-    const fundraisingCount = state.filteredStartups.filter(s => s.fundraising).length;
-    const meetInvestorsCount = state.filteredStartups.filter(s => s.meet_investors).length;
+    const total = state.filteredStartups.length;
+    const fundraising = state.filteredStartups.filter(s => s.fundraising).length;
+    const meetInvestors = state.filteredStartups.filter(s => s.meet_investors).length;
     const countries = new Set(state.filteredStartups.map(s => s.country)).size;
     const industries = new Set(state.filteredStartups.map(s => s.industry)).size;
+    const womenFounders = state.filteredStartups.filter(s => s.startup_women_founder).length;
+    const blackFounders = state.filteredStartups.filter(s => s.startup_black_founder).length;
+    const indigenousFounders = state.filteredStartups.filter(s => s.startup_indigenous_founder).length;
 
-    return { fundraisingCount, meetInvestorsCount, countries, industries };
+    return { 
+      total, 
+      fundraising, 
+      meetInvestors, 
+      countries, 
+      industries,
+      womenFounders,
+      blackFounders,
+      indigenousFounders
+    };
   }, [state.filteredStartups]);
 
   if (isLoading) {
@@ -202,32 +219,39 @@ export default function Index() {
           </Card>
         )}
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-primary">{stats.fundraisingCount}</div>
-              <div className="text-sm text-muted-foreground">Fundraising</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-primary">{stats.meetInvestorsCount}</div>
-              <div className="text-sm text-muted-foreground">Meet Investors</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-primary">{stats.countries}</div>
-              <div className="text-sm text-muted-foreground">Países</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-primary">{stats.industries}</div>
-              <div className="text-sm text-muted-foreground">Indústrias</div>
-            </CardContent>
-          </Card>
+        {/* Search and Quick Filters */}
+        <div className="space-y-4 mb-6">
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+            <GlobalSearch 
+              startups={startups}
+              onSearchChange={setSearchQuery}
+              searchQuery={searchQuery}
+            />
+            <div className="flex items-center gap-2">
+              <Link to="/filters">
+                <Button variant="outline">
+                  <Filter className="h-4 w-4 mr-2" />
+                  Filtros Avançados
+                </Button>
+              </Link>
+              <Link to="/kanban">
+                <Button variant="outline">
+                  Kanban
+                </Button>
+              </Link>
+            </div>
+          </div>
+          
+          <QuickFilters
+            filters={quickFilters}
+            onToggle={handleQuickFilterToggle}
+            onClearAll={handleClearQuickFilters}
+          />
+        </div>
+
+        {/* Stats */}
+        <div className="mb-6">
+          <StartupStats stats={stats} />
         </div>
 
         {/* Selection and Export Controls */}
@@ -261,10 +285,10 @@ export default function Index() {
                     <Button variant="outline" size="sm" onClick={handleClearSelection}>
                       Limpar Seleção
                     </Button>
-                    <Button onClick={handleExportCSV}>
-                      <Download className="h-4 w-4 mr-2" />
-                      Exportar CSV
-                    </Button>
+                    <ExportOptions 
+                      startups={startups}
+                      selectedStartups={state.selectedStartups}
+                    />
                   </div>
                 )}
               </div>
