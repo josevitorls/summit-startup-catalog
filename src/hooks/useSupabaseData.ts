@@ -54,7 +54,7 @@ export interface SupabaseStartup {
   startup_topics?: {
     topic_id: string;
     topic_name: string;
-    topic_type: 'offering' | 'seeking';
+    topic_type: string; // Mudado de 'offering' | 'seeking' para string
   }[];
   startup_tags?: {
     tag_name: string;
@@ -265,7 +265,7 @@ export function useStartups() {
               startup_team_members: teamMembers || [],
               startup_topics: topics || [],
               startup_tags: tags || []
-            };
+            } as SupabaseStartup;
           } catch (error) {
             console.warn(`⚠️ Erro ao enriquecer dados da startup ${startup.name}:`, error);
             return {
@@ -274,7 +274,7 @@ export function useStartups() {
               startup_team_members: [],
               startup_topics: [],
               startup_tags: []
-            };
+            } as SupabaseStartup;
           }
         })
       );
@@ -334,7 +334,7 @@ export function useKanbanStartups() {
               startup_team_members: teamMembers || [],
               startup_topics: topics || [],
               startup_tags: tags || []
-            };
+            } as SupabaseStartup;
           } catch (error) {
             console.warn(`⚠️ Erro ao enriquecer dados da startup do kanban ${startup.name}:`, error);
             return {
@@ -343,7 +343,7 @@ export function useKanbanStartups() {
               startup_team_members: [],
               startup_topics: [],
               startup_tags: []
-            };
+            } as SupabaseStartup;
           }
         })
       );
