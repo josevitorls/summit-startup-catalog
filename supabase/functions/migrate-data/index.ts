@@ -14,7 +14,7 @@ serve(async (req) => {
   }
 
   try {
-    console.log('🚀 Starting ultra-resilient migration process with manual controls...');
+    console.log('🚀 Starting ultra-resilient migration process with auto-continuation...');
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -305,6 +305,37 @@ serve(async (req) => {
 
       console.log(`✅ File ${fileName} processed: ${successfulInserts}/${processedCount} successful`);
 
+      // **NOVA FUNCIONALIDADE: AUTO-CONTINUAÇÃO**
+      if (isCompleted) {
+        console.log('🔄 Arquivo concluído! Verificando se há próximo arquivo...');
+        
+        // Marcar como não executando temporariamente
+        await supabaseClient
+          .from('migration_control')
+          .update({ is_running: false })
+          .eq('id', controlData.id);
+
+        // Verificar se há próximo arquivo
+        const { data: nextCheck } = await supabaseClient.rpc('get_next_migration_file');
+        
+        if (nextCheck && nextCheck.length > 0) {
+          console.log(`🚀 Próximo arquivo encontrado: ${nextCheck[0].file_name}. Auto-continuando...`);
+          
+          // Auto-chamar próximo arquivo após 2 segundos
+          setTimeout(async () => {
+            try {
+              const { data: nextResult, error: nextError } = await supabaseClient.functions.invoke('migrate-data');
+              console.log('🔄 Auto-continuação resultado:', nextResult);
+              if (nextError) console.error('❌ Erro na auto-continuação:', nextError);
+            } catch (error) {
+              console.error('❌ Erro crítico na auto-continuação:', error);
+            }
+          }, 2000);
+        } else {
+          console.log('🎉 Todos os arquivos processados! Migração completa.');
+        }
+      }
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -312,7 +343,8 @@ serve(async (req) => {
           processed_count: processedCount,
           successful_inserts: successfulInserts,
           total_count: startups.length,
-          completed: isCompleted
+          completed: isCompleted,
+          auto_continue: isCompleted && await supabaseClient.rpc('get_next_migration_file').then(r => r.data?.length > 0)
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -329,6 +361,12 @@ serve(async (req) => {
           completed_at: new Date().toISOString()
         })
         .eq('file_name', fileName);
+
+      // Resetar is_running para permitir retry
+      await supabaseClient
+        .from('migration_control')
+        .update({ is_running: false })
+        .eq('id', controlData.id);
 
       throw error;
     }

@@ -24,7 +24,7 @@ export function useMigrationControl() {
       return data as MigrationControlState;
     },
     staleTime: 500,
-    refetchInterval: 1000, // Polling mais agressivo
+    refetchInterval: 2000, // Polling mais frequente para detectar mudanças
   });
 }
 
@@ -56,15 +56,24 @@ export function useResumeMigration() {
     mutationFn: async () => {
       console.log('▶️ Retomando migração...');
       
-      // Primeiro, despausar
+      // Primeiro, despausar e resetar is_running se necessário
+      const { data: controlData } = await supabase.from('migration_control').select('*').single();
+      
       const { error: unpauseError } = await supabase
         .from('migration_control')
-        .update({ is_paused: false })
-        .eq('id', (await supabase.from('migration_control').select('id').single()).data.id);
+        .update({ 
+          is_paused: false,
+          is_running: false // Resetar para evitar travamento
+        })
+        .eq('id', controlData.data.id);
 
       if (unpauseError) throw unpauseError;
 
+      // Aguardar um momento para o reset
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
       // Depois, chamar edge function
+      console.log('🚀 Chamando edge function para continuar migração...');
       const { data, error } = await supabase.functions.invoke('migrate-data');
       
       if (error) throw error;
@@ -94,6 +103,45 @@ export function useResetMigration() {
       queryClient.invalidateQueries({ queryKey: ['migration-control'] });
       queryClient.invalidateQueries({ queryKey: ['migration-progress'] });
       queryClient.invalidateQueries({ queryKey: ['startups'] });
+    },
+  });
+}
+
+// Nova função para forçar reset do estado travado
+export function useForceUnstuck() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async () => {
+      console.log('🚨 Forçando desbloqueio da migração travada...');
+      
+      // Resetar diretamente o estado de controle
+      const { data: controlData } = await supabase.from('migration_control').select('id').single();
+      
+      const { error } = await supabase
+        .from('migration_control')
+        .update({ 
+          is_running: false,
+          is_paused: false,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', controlData.data.id);
+
+      if (error) throw error;
+      
+      // Aguardar um momento
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Chamar migração imediatamente
+      const { data: migrationResult, error: migrationError } = await supabase.functions.invoke('migrate-data');
+      
+      if (migrationError) throw migrationError;
+      return migrationResult;
+    },
+    onSuccess: () => {
+      console.log('✅ Migração desbloqueada e retomada');
+      queryClient.invalidateQueries({ queryKey: ['migration-control'] });
+      queryClient.invalidateQueries({ queryKey: ['migration-progress'] });
     },
   });
 }
