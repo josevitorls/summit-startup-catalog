@@ -23,21 +23,33 @@ const initialState: AppState = {
   startups: [],
   filteredStartups: [],
   selectedStartups: new Set(),
-  tags: ['cubo_membro', 'cubo_indicar', 'legalops', 'gestao', 'dzb', 'mentoria', 'flip'],
+  tags: [],
   comments: [],
   filters: {
     search: '',
     country: '',
     industry: '',
     fundingTier: '',
+    fundraising: undefined,
+    meetInvestors: undefined,
+    womenFounder: undefined,
+    blackFounder: undefined,
+    indigenousFounder: undefined,
     tags: [],
     offeringTopics: [],
     seekingTopics: [],
+    endorsedBy: [],
+    cities: [],
+    provinces: [],
+    countries: [],
+    industries: [],
+    fundingTiers: []
   },
   loading: false,
+  error: undefined,
   currentPage: 1,
-  itemsPerPage: 100,
-  viewMode: 'cards',
+  itemsPerPage: 20,
+  viewMode: 'cards'
 };
 
 function appReducer(state: AppState, action: AppAction): AppState {

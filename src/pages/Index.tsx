@@ -83,7 +83,7 @@ export default function Index() {
   const endIndex = startIndex + state.itemsPerPage;
   const currentStartups = state.filteredStartups.slice(startIndex, endIndex);
 
-  // Quick filters
+  // Quick filters - updated to include Black Founders
   const quickFilters = [
     {
       id: 'fundraising',
@@ -101,7 +101,13 @@ export default function Index() {
       id: 'womenFounder',
       label: 'Women Founder',
       count: startups.filter(s => s.startup_women_founder).length,
-      isActive: false
+      isActive: state.filters.womenFounder === true
+    },
+    {
+      id: 'blackFounder',
+      label: 'Black Founder',
+      count: startups.filter(s => s.startup_black_founder).length,
+      isActive: state.filters.blackFounder === true
     }
   ];
 
@@ -125,6 +131,24 @@ export default function Index() {
           }
         });
         break;
+      case 'womenFounder':
+        dispatch({
+          type: 'SET_FILTERS',
+          payload: {
+            ...state.filters,
+            womenFounder: state.filters.womenFounder === true ? undefined : true
+          }
+        });
+        break;
+      case 'blackFounder':
+        dispatch({
+          type: 'SET_FILTERS',
+          payload: {
+            ...state.filters,
+            blackFounder: state.filters.blackFounder === true ? undefined : true
+          }
+        });
+        break;
     }
   };
 
@@ -134,7 +158,9 @@ export default function Index() {
       payload: {
         ...state.filters,
         fundraising: undefined,
-        meetInvestors: undefined
+        meetInvestors: undefined,
+        womenFounder: undefined,
+        blackFounder: undefined
       }
     });
   };
@@ -185,7 +211,7 @@ export default function Index() {
     }
   };
 
-  // Stats
+  // Stats - updated to include all diversity categories
   const stats = useMemo(() => {
     const total = state.filteredStartups.length;
     const fundraising = state.filteredStartups.filter(s => s.fundraising).length;

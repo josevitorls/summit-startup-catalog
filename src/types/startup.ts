@@ -1,4 +1,3 @@
-
 // Types for the Web Summit Rio 2025 Startup Catalog
 
 export interface LogoUrls {
@@ -182,7 +181,16 @@ export interface FilterState {
   fundingTier: string;
   fundraising?: boolean;
   meetInvestors?: boolean;
+  womenFounder?: boolean;
+  blackFounder?: boolean;
+  indigenousFounder?: boolean;
   tags: string[];
   offeringTopics: string[];
   seekingTopics: string[];
+  endorsedBy: string[];
+  cities: string[];
+  provinces: string[];
+  countries: string[];
+  industries: string[];
+  fundingTiers: string[];
 }

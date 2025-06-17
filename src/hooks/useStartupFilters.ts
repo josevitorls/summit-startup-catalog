@@ -12,24 +12,59 @@ export function useStartupFilters(startups: Startup[], filters: FilterState): St
       filtered = searchStartups(filtered, filters.search);
     }
 
-    // Country filter
+    // Country filter (legacy single field)
     if (filters.country) {
       filtered = filtered.filter(startup => 
         startup.country.toLowerCase().includes(filters.country.toLowerCase())
       );
     }
 
-    // Industry filter
+    // Countries filter (new multi-select)
+    if (filters.countries.length > 0) {
+      filtered = filtered.filter(startup => 
+        filters.countries.some(country => startup.country === country)
+      );
+    }
+
+    // Cities filter
+    if (filters.cities.length > 0) {
+      filtered = filtered.filter(startup => 
+        filters.cities.some(city => startup.city === city)
+      );
+    }
+
+    // Provinces filter
+    if (filters.provinces.length > 0) {
+      filtered = filtered.filter(startup => 
+        filters.provinces.some(province => startup.province === province)
+      );
+    }
+
+    // Industry filter (legacy single field)
     if (filters.industry) {
       filtered = filtered.filter(startup => 
         startup.industry.toLowerCase().includes(filters.industry.toLowerCase())
       );
     }
 
-    // Funding tier filter
+    // Industries filter (new multi-select)
+    if (filters.industries.length > 0) {
+      filtered = filtered.filter(startup => 
+        filters.industries.some(industry => startup.industry === industry)
+      );
+    }
+
+    // Funding tier filter (legacy single field)
     if (filters.fundingTier) {
       filtered = filtered.filter(startup => 
         startup.funding_tier.toLowerCase().includes(filters.fundingTier.toLowerCase())
+      );
+    }
+
+    // Funding tiers filter (new multi-select)
+    if (filters.fundingTiers.length > 0) {
+      filtered = filtered.filter(startup => 
+        filters.fundingTiers.some(tier => startup.funding_tier === tier)
       );
     }
 
@@ -41,6 +76,30 @@ export function useStartupFilters(startups: Startup[], filters: FilterState): St
     // Meet investors filter
     if (filters.meetInvestors !== undefined) {
       filtered = filtered.filter(startup => startup.meet_investors === filters.meetInvestors);
+    }
+
+    // Women founder filter
+    if (filters.womenFounder !== undefined) {
+      filtered = filtered.filter(startup => startup.startup_women_founder === filters.womenFounder);
+    }
+
+    // Black founder filter
+    if (filters.blackFounder !== undefined) {
+      filtered = filtered.filter(startup => startup.startup_black_founder === filters.blackFounder);
+    }
+
+    // Indigenous founder filter
+    if (filters.indigenousFounder !== undefined) {
+      filtered = filtered.filter(startup => startup.startup_indigenous_founder === filters.indigenousFounder);
+    }
+
+    // Endorsed by filter
+    if (filters.endorsedBy.length > 0) {
+      filtered = filtered.filter(startup => 
+        startup.endorsed_by && filters.endorsedBy.some(endorser => 
+          startup.endorsed_by.toLowerCase().includes(endorser.toLowerCase())
+        )
+      );
     }
 
     // Tags filter

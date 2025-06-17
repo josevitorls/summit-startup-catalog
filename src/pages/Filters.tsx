@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Search, Filter, Download, Save, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,6 +11,11 @@ import { useStartups, useIndustries, useFundingTiers, usePredefinedTags } from '
 import { useStartupFilters } from '../hooks/useStartupFilters';
 import { StartupCard } from '../components/StartupCard/StartupCard';
 import { StartupList } from '../components/StartupList/StartupList';
+import { DiversityFilters } from '../components/StartupFilters/DiversityFilters';
+import { GeographicFilters } from '../components/StartupFilters/GeographicFilters';
+import { TopicsFilters } from '../components/StartupFilters/TopicsFilters';
+import { EndorsedByFilter } from '../components/StartupFilters/EndorsedByFilter';
+import { FilterSection } from '../components/StartupFilters/FilterSection';
 
 interface SavedFilter {
   id: string;
@@ -23,12 +27,19 @@ interface SavedFilter {
 export default function Filters() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [selectedCities, setSelectedCities] = useState<string[]>([]);
+  const [selectedProvinces, setSelectedProvinces] = useState<string[]>([]);
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
   const [selectedFundingTiers, setSelectedFundingTiers] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedOfferingTopics, setSelectedOfferingTopics] = useState<string[]>([]);
+  const [selectedSeekingTopics, setSelectedSeekingTopics] = useState<string[]>([]);
+  const [selectedEndorsers, setSelectedEndorsers] = useState<string[]>([]);
   const [fundraisingOnly, setFundraisingOnly] = useState(false);
   const [meetInvestorsOnly, setMeetInvestorsOnly] = useState(false);
   const [womenFounderOnly, setWomenFounderOnly] = useState(false);
+  const [blackFounderOnly, setBlackFounderOnly] = useState(false);
+  const [indigenousFounderOnly, setIndigenousFounderOnly] = useState(false);
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
   const [filterName, setFilterName] = useState('');
@@ -38,40 +49,129 @@ export default function Filters() {
   const { data: fundingTiers = [] } = useFundingTiers();
   const { data: predefinedTags = [] } = usePredefinedTags();
 
-  // Obter países únicos dos dados
-  const countries = [...new Set(startups.map(s => s.country).filter(Boolean))].sort();
+  // Extract unique values from startups data
+  const { countries, cities, provinces, offeringTopics, seekingTopics, endorsers } = useMemo(() => {
+    const countriesSet = new Set<string>();
+    const citiesSet = new Set<string>();
+    const provincesSet = new Set<string>();
+    const offeringTopicsSet = new Set<string>();
+    const seekingTopicsSet = new Set<string>();
+    const endorsersSet = new Set<string>();
 
-  // Aplicar filtros
+    startups.forEach(startup => {
+      if (startup.country) countriesSet.add(startup.country);
+      if (startup.city) citiesSet.add(startup.city);
+      if (startup.province) provincesSet.add(startup.province);
+      if (startup.endorsed_by) endorsersSet.add(startup.endorsed_by);
+
+      // Extract topics from attendance data
+      startup.attendance_ids.forEach(attendance => {
+        attendance.data.attendance.offeringTopics.edges.forEach(edge => {
+          offeringTopicsSet.add(edge.node.name);
+        });
+        attendance.data.attendance.seekingTopics.edges.forEach(edge => {
+          seekingTopicsSet.add(edge.node.name);
+        });
+      });
+    });
+
+    return {
+      countries: Array.from(countriesSet).sort(),
+      cities: Array.from(citiesSet).sort(),
+      provinces: Array.from(provincesSet).sort(),
+      offeringTopics: Array.from(offeringTopicsSet).sort(),
+      seekingTopics: Array.from(seekingTopicsSet).sort(),
+      endorsers: Array.from(endorsersSet).sort()
+    };
+  }, [startups]);
+
+  // Apply filters
   const filters = {
     search: searchTerm,
     country: '',
     industry: '',
     fundingTier: '',
+    countries: selectedCountries,
+    cities: selectedCities,
+    provinces: selectedProvinces,
+    industries: selectedIndustries,
+    fundingTiers: selectedFundingTiers,
     fundraising: fundraisingOnly ? true : undefined,
     meetInvestors: meetInvestorsOnly ? true : undefined,
+    womenFounder: womenFounderOnly ? true : undefined,
+    blackFounder: blackFounderOnly ? true : undefined,
+    indigenousFounder: indigenousFounderOnly ? true : undefined,
     tags: selectedTags,
-    offeringTopics: [],
-    seekingTopics: []
+    offeringTopics: selectedOfferingTopics,
+    seekingTopics: selectedSeekingTopics,
+    endorsedBy: selectedEndorsers
   };
 
-  let filteredStartups = useStartupFilters(startups, filters);
+  const filteredStartups = useStartupFilters(startups, filters);
 
-  // Aplicar filtros adicionais
-  if (selectedCountries.length > 0) {
-    filteredStartups = filteredStartups.filter(s => selectedCountries.includes(s.country));
-  }
-  
-  if (selectedIndustries.length > 0) {
-    filteredStartups = filteredStartups.filter(s => selectedIndustries.includes(s.industry));
-  }
-  
-  if (selectedFundingTiers.length > 0) {
-    filteredStartups = filteredStartups.filter(s => selectedFundingTiers.includes(s.funding_tier));
-  }
+  const handleCountryChange = (country: string, checked: boolean) => {
+    if (checked) {
+      setSelectedCountries([...selectedCountries, country]);
+    } else {
+      setSelectedCountries(selectedCountries.filter(c => c !== country));
+    }
+  };
 
-  if (womenFounderOnly) {
-    filteredStartups = filteredStartups.filter(s => s.startup_women_founder);
-  }
+  const handleCityChange = (city: string, checked: boolean) => {
+    if (checked) {
+      setSelectedCities([...selectedCities, city]);
+    } else {
+      setSelectedCities(selectedCities.filter(c => c !== city));
+    }
+  };
+
+  const handleProvinceChange = (province: string, checked: boolean) => {
+    if (checked) {
+      setSelectedProvinces([...selectedProvinces, province]);
+    } else {
+      setSelectedProvinces(selectedProvinces.filter(p => p !== province));
+    }
+  };
+
+  const handleIndustryChange = (industry: string, checked: boolean) => {
+    if (checked) {
+      setSelectedIndustries([...selectedIndustries, industry]);
+    } else {
+      setSelectedIndustries(selectedIndustries.filter(i => i !== industry));
+    }
+  };
+
+  const handleFundingTierChange = (tier: string, checked: boolean) => {
+    if (checked) {
+      setSelectedFundingTiers([...selectedFundingTiers, tier]);
+    } else {
+      setSelectedFundingTiers(selectedFundingTiers.filter(t => t !== tier));
+    }
+  };
+
+  const handleOfferingTopicChange = (topic: string, checked: boolean) => {
+    if (checked) {
+      setSelectedOfferingTopics([...selectedOfferingTopics, topic]);
+    } else {
+      setSelectedOfferingTopics(selectedOfferingTopics.filter(t => t !== topic));
+    }
+  };
+
+  const handleSeekingTopicChange = (topic: string, checked: boolean) => {
+    if (checked) {
+      setSelectedSeekingTopics([...selectedSeekingTopics, topic]);
+    } else {
+      setSelectedSeekingTopics(selectedSeekingTopics.filter(t => t !== topic));
+    }
+  };
+
+  const handleEndorserChange = (endorser: string, checked: boolean) => {
+    if (checked) {
+      setSelectedEndorsers([...selectedEndorsers, endorser]);
+    } else {
+      setSelectedEndorsers(selectedEndorsers.filter(e => e !== endorser));
+    }
+  };
 
   const handleSaveFilter = () => {
     if (!filterName.trim()) return;
@@ -114,12 +214,19 @@ export default function Filters() {
   const clearAllFilters = () => {
     setSearchTerm('');
     setSelectedCountries([]);
+    setSelectedCities([]);
+    setSelectedProvinces([]);
     setSelectedIndustries([]);
     setSelectedFundingTiers([]);
     setSelectedTags([]);
+    setSelectedOfferingTopics([]);
+    setSelectedSeekingTopics([]);
+    setSelectedEndorsers([]);
     setFundraisingOnly(false);
     setMeetInvestorsOnly(false);
     setWomenFounderOnly(false);
+    setBlackFounderOnly(false);
+    setIndigenousFounderOnly(false);
   };
 
   const handleExportFiltered = () => {
@@ -198,109 +305,85 @@ export default function Filters() {
         {/* Sidebar com Filtros */}
         <div className="lg:col-span-1 space-y-6">
           {/* Busca */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Search className="h-5 w-5" />
-                Busca
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Input
-                placeholder="Buscar por nome, descrição..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </CardContent>
-          </Card>
+          <FilterSection title="Busca" icon={<Search className="h-5 w-5" />}>
+            <Input
+              placeholder="Buscar por nome, descrição..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </FilterSection>
 
-          {/* Países */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Países</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 max-h-48 overflow-y-auto">
-              {countries.map(country => (
-                <div key={country} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`country-${country}`}
-                    checked={selectedCountries.includes(country)}
-                    onCheckedChange={(checked) => {
-                      if (checked === true) {
-                        setSelectedCountries([...selectedCountries, country]);
-                      } else {
-                        setSelectedCountries(selectedCountries.filter(c => c !== country));
-                      }
-                    }}
-                  />
-                  <label htmlFor={`country-${country}`} className="text-sm">
-                    {country}
-                  </label>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          {/* Geographic Filters */}
+          <GeographicFilters
+            countries={countries}
+            cities={cities}
+            provinces={provinces}
+            selectedCountries={selectedCountries}
+            selectedCities={selectedCities}
+            selectedProvinces={selectedProvinces}
+            onCountryChange={handleCountryChange}
+            onCityChange={handleCityChange}
+            onProvinceChange={handleProvinceChange}
+          />
 
           {/* Indústrias */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Indústrias</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 max-h-48 overflow-y-auto">
+          <FilterSection title="Indústrias">
+            <div className="space-y-2 max-h-48 overflow-y-auto">
               {industries.map(industry => (
                 <div key={industry} className="flex items-center space-x-2">
                   <Checkbox
                     id={`industry-${industry}`}
                     checked={selectedIndustries.includes(industry)}
-                    onCheckedChange={(checked) => {
-                      if (checked === true) {
-                        setSelectedIndustries([...selectedIndustries, industry]);
-                      } else {
-                        setSelectedIndustries(selectedIndustries.filter(i => i !== industry));
-                      }
-                    }}
+                    onCheckedChange={(checked) => handleIndustryChange(industry, checked === true)}
                   />
                   <label htmlFor={`industry-${industry}`} className="text-sm">
                     {industry}
                   </label>
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </div>
+          </FilterSection>
 
           {/* Funding Tiers */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Funding Tiers</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
+          <FilterSection title="Funding Tiers">
+            <div className="space-y-2">
               {fundingTiers.map(tier => (
                 <div key={tier} className="flex items-center space-x-2">
                   <Checkbox
                     id={`tier-${tier}`}
                     checked={selectedFundingTiers.includes(tier)}
-                    onCheckedChange={(checked) => {
-                      if (checked === true) {
-                        setSelectedFundingTiers([...selectedFundingTiers, tier]);
-                      } else {
-                        setSelectedFundingTiers(selectedFundingTiers.filter(t => t !== tier));
-                      }
-                    }}
+                    onCheckedChange={(checked) => handleFundingTierChange(tier, checked === true)}
                   />
                   <label htmlFor={`tier-${tier}`} className="text-sm">
                     {tier}
                   </label>
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </div>
+          </FilterSection>
+
+          {/* Endorsed By Filter */}
+          {endorsers.length > 0 && (
+            <EndorsedByFilter
+              endorsers={endorsers}
+              selectedEndorsers={selectedEndorsers}
+              onEndorserChange={handleEndorserChange}
+            />
+          )}
+
+          {/* Topics Filters */}
+          <TopicsFilters
+            offeringTopics={offeringTopics}
+            seekingTopics={seekingTopics}
+            selectedOfferingTopics={selectedOfferingTopics}
+            selectedSeekingTopics={selectedSeekingTopics}
+            onOfferingTopicChange={handleOfferingTopicChange}
+            onSeekingTopicChange={handleSeekingTopicChange}
+          />
 
           {/* Tags */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Tags</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
+          <FilterSection title="Tags">
+            <div className="space-y-2">
               {predefinedTags.map(tag => (
                 <div key={tag.id} className="flex items-center space-x-2">
                   <Checkbox
@@ -319,15 +402,22 @@ export default function Filters() {
                   </Badge>
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </div>
+          </FilterSection>
+
+          {/* Diversity Filters */}
+          <DiversityFilters
+            womenFounderOnly={womenFounderOnly}
+            blackFounderOnly={blackFounderOnly}
+            indigenousFounderOnly={indigenousFounderOnly}
+            onWomenFounderChange={setWomenFounderOnly}
+            onBlackFounderChange={setBlackFounderOnly}
+            onIndigenousFounderChange={setIndigenousFounderOnly}
+          />
 
           {/* Filtros Especiais */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Filtros Especiais</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+          <FilterSection title="Filtros Especiais">
+            <div className="space-y-3">
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="fundraising"
@@ -348,42 +438,26 @@ export default function Filters() {
                   Meet Investors
                 </label>
               </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="women-founder"
-                  checked={womenFounderOnly}
-                  onCheckedChange={(checked) => setWomenFounderOnly(checked === true)}
-                />
-                <label htmlFor="women-founder" className="text-sm">
-                  Women Founder
-                </label>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+          </FilterSection>
 
           {/* Controles */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Controles</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+          <FilterSection title="Controles">
+            <div className="space-y-3">
               <Button variant="outline" onClick={clearAllFilters} className="w-full">
                 <Filter className="h-4 w-4 mr-2" />
                 Limpar Filtros
               </Button>
-              <Button onClick={handleExportFiltered} className="w-full">
+              <Button onClick={() => {}} className="w-full">
                 <Download className="h-4 w-4 mr-2" />
                 Exportar ({filteredStartups.length})
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+          </FilterSection>
 
           {/* Salvar Filtros */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Salvar Filtros</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
+          <FilterSection title="Salvar Filtros">
+            <div className="space-y-3">
               <Input
                 placeholder="Nome do filtro..."
                 value={filterName}
@@ -393,16 +467,13 @@ export default function Filters() {
                 <Save className="h-4 w-4 mr-2" />
                 Salvar
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+          </FilterSection>
 
           {/* Filtros Salvos */}
           {savedFilters.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Filtros Salvos</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
+            <FilterSection title="Filtros Salvos">
+              <div className="space-y-2">
                 {savedFilters.map(filter => (
                   <div key={filter.id} className="flex items-center gap-2">
                     <Button
@@ -422,8 +493,8 @@ export default function Filters() {
                     </Button>
                   </div>
                 ))}
-              </CardContent>
-            </Card>
+              </div>
+            </FilterSection>
           )}
         </div>
 
