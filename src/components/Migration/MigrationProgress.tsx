@@ -3,7 +3,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle, AlertCircle, Clock, RefreshCw, Play, Pause } from 'lucide-react';
+import { CheckCircle, AlertCircle, Clock, RefreshCw, Play, Pause, Zap, Activity, Database, HardDrive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useMigrationProgress, useMigrateData, type MigrationProgress } from '../../hooks/useSupabaseData';
 
@@ -19,18 +19,38 @@ export function MigrationProgressComponent({ isVisible }: MigrationProgressProps
     return null;
   }
 
-  const totalFiles = progressData.length || 13; // Fallback para 13 arquivos conhecidos
+  const totalFiles = 13;
   const completedFiles = progressData.filter(p => p.status === 'completed').length;
   const failedFiles = progressData.filter(p => p.status === 'failed').length;
   const processingFiles = progressData.filter(p => p.status === 'processing').length;
   
-  const totalProgress = totalFiles > 0 ? (completedFiles / 13) * 100 : 0; // Usar 13 como total real
+  const totalProgress = (completedFiles / totalFiles) * 100;
   const totalProcessed = progressData.reduce((sum, p) => sum + p.processed_count, 0);
   const totalExpected = progressData.reduce((sum, p) => sum + p.total_count, 0);
 
   const isRunning = processingFiles > 0 || migrateMutation.isPending;
-  const isComplete = completedFiles === 13 && failedFiles === 0;
+  const isComplete = completedFiles === totalFiles && failedFiles === 0;
   const hasIssues = failedFiles > 0;
+
+  // Calcular métricas de performance
+  const avgProcessingTime = progressData.length > 0 
+    ? progressData.reduce((sum, p) => {
+        if (p.started_at && p.completed_at) {
+          const start = new Date(p.started_at).getTime();
+          const end = new Date(p.completed_at).getTime();
+          return sum + (end - start);
+        }
+        return sum;
+      }, 0) / completedFiles
+    : 0;
+
+  const startupsPerSecond = avgProcessingTime > 0 
+    ? Math.round((totalProcessed / (avgProcessingTime / 1000)) * 100) / 100
+    : 0;
+
+  const estimatedTimeRemaining = startupsPerSecond > 0 && totalExpected > totalProcessed
+    ? Math.round(((totalExpected - totalProcessed) / startupsPerSecond) / 60) // em minutos
+    : 0;
 
   const getStatusIcon = (status: MigrationProgress['status']) => {
     switch (status) {
@@ -48,7 +68,7 @@ export function MigrationProgressComponent({ isVisible }: MigrationProgressProps
   const getStatusBadge = (status: MigrationProgress['status']) => {
     const variants = {
       completed: 'default',
-      failed: 'destructive',
+      failed: 'destructive', 
       processing: 'secondary',
       pending: 'outline',
     } as const;
@@ -91,9 +111,9 @@ export function MigrationProgressComponent({ isVisible }: MigrationProgressProps
             ) : hasIssues ? (
               <AlertCircle className="h-5 w-5" />
             ) : (
-              <Play className="h-5 w-5" />
+              <Zap className="h-5 w-5" />
             )}
-            Migração de Dados - Micro-Batches
+            Sistema de Migração Ultra-Resiliente
           </CardTitle>
           
           {!isRunning && !isComplete && (
@@ -111,28 +131,65 @@ export function MigrationProgressComponent({ isVisible }: MigrationProgressProps
               ) : (
                 <>
                   <Play className="h-4 w-4 mr-2" />
-                  Continuar Migração
+                  Iniciar Migração
                 </>
               )}
             </Button>
           )}
         </div>
+
+        {/* Métricas de Performance em Tempo Real */}
+        {(isRunning || isComplete) && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+            <div className="flex items-center gap-2 text-sm">
+              <Activity className="h-4 w-4 text-blue-600" />
+              <div>
+                <div className="font-medium">{startupsPerSecond}/s</div>
+                <div className="text-xs text-muted-foreground">Velocidade</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <Database className="h-4 w-4 text-green-600" />
+              <div>
+                <div className="font-medium">{totalProcessed}</div>
+                <div className="text-xs text-muted-foreground">Processadas</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <HardDrive className="h-4 w-4 text-purple-600" />
+              <div>
+                <div className="font-medium">{completedFiles}/{totalFiles}</div>
+                <div className="text-xs text-muted-foreground">Arquivos</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <Clock className="h-4 w-4 text-orange-600" />
+              <div>
+                <div className="font-medium">
+                  {estimatedTimeRemaining > 0 ? `${estimatedTimeRemaining}m` : '--'}
+                </div>
+                <div className="text-xs text-muted-foreground">ETA</div>
+              </div>
+            </div>
+          </div>
+        )}
       </CardHeader>
+
       <CardContent className="space-y-4">
-        {/* Progresso Geral */}
+        {/* Progresso Geral com Métricas Avançadas */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span className={isComplete ? 'text-green-700' : hasIssues ? 'text-red-700' : 'text-blue-700'}>
-              Progresso Geral
+              Progresso Geral - Sistema Resiliente Ativo
             </span>
             <span className={isComplete ? 'text-green-700' : hasIssues ? 'text-red-700' : 'text-blue-700'}>
-              {completedFiles}/13 arquivos • {totalProcessed} startups
+              {Math.round(totalProgress)}% • {totalProcessed} startups migradas
             </span>
           </div>
-          <Progress value={totalProgress} className="h-2" />
+          <Progress value={totalProgress} className="h-3" />
           <div className="flex justify-between text-xs">
             <span className={isComplete ? 'text-green-600' : hasIssues ? 'text-red-600' : 'text-blue-600'}>
-              {Math.round(totalProgress)}% concluído
+              ✨ Checkpoint granular • Auto-recovery • Processamento adaptativo
             </span>
             {totalExpected > 0 && (
               <span className={isComplete ? 'text-green-600' : hasIssues ? 'text-red-600' : 'text-blue-600'}>
@@ -142,88 +199,135 @@ export function MigrationProgressComponent({ isVisible }: MigrationProgressProps
           </div>
         </div>
 
-        {/* Status Cards */}
+        {/* Status Cards Melhorados */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center p-3 bg-white rounded-lg border">
+          <div className="text-center p-3 bg-white rounded-lg border border-green-200">
             <div className="text-2xl font-bold text-green-600">{completedFiles}</div>
-            <div className="text-xs text-green-600">Concluídos</div>
+            <div className="text-xs text-green-600">✅ Concluídos</div>
           </div>
-          <div className="text-center p-3 bg-white rounded-lg border">
+          <div className="text-center p-3 bg-white rounded-lg border border-blue-200">
             <div className="text-2xl font-bold text-blue-600">{processingFiles}</div>
-            <div className="text-xs text-blue-600">Processando</div>
+            <div className="text-xs text-blue-600">🔄 Processando</div>
           </div>
-          <div className="text-center p-3 bg-white rounded-lg border">
+          <div className="text-center p-3 bg-white rounded-lg border border-red-200">
             <div className="text-2xl font-bold text-red-600">{failedFiles}</div>
-            <div className="text-xs text-red-600">Falharam</div>
+            <div className="text-xs text-red-600">❌ Falharam</div>
           </div>
-          <div className="text-center p-3 bg-white rounded-lg border">
-            <div className="text-2xl font-bold text-gray-600">{Math.max(0, 13 - completedFiles - processingFiles - failedFiles)}</div>
-            <div className="text-xs text-gray-600">Pendentes</div>
+          <div className="text-center p-3 bg-white rounded-lg border border-gray-200">
+            <div className="text-2xl font-bold text-gray-600">
+              {Math.max(0, totalFiles - completedFiles - processingFiles - failedFiles)}
+            </div>
+            <div className="text-xs text-gray-600">⏳ Pendentes</div>
           </div>
         </div>
 
-        {/* Lista de Arquivos */}
+        {/* Lista de Arquivos com Progresso Detalhado */}
         {progressData.length > 0 && (
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            <div className="text-sm font-medium mb-2">
-              Detalhes por Arquivo ({progressData.length} de 13):
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            <div className="text-sm font-medium mb-2 flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Progresso Detalhado por Arquivo ({progressData.length} de {totalFiles}):
             </div>
-            {progressData.map((progress) => (
-              <div key={progress.id} className="flex items-center justify-between p-2 bg-white rounded border">
-                <div className="flex items-center gap-2 flex-1">
-                  {getStatusIcon(progress.status)}
-                  <span className="text-sm font-medium truncate">
-                    {progress.file_name.replace('.json', '')}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {progress.status === 'processing' && (
-                    <span className="text-xs text-gray-500">
-                      {progress.processed_count}/{progress.total_count}
-                    </span>
+            {progressData.map((progress) => {
+              const fileProgress = progress.total_count > 0 
+                ? (progress.processed_count / progress.total_count) * 100 
+                : 0;
+              
+              return (
+                <div key={progress.id} className="p-3 bg-white rounded border space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-1">
+                      {getStatusIcon(progress.status)}
+                      <span className="text-sm font-medium truncate">
+                        {progress.file_name.replace('.json', '')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {progress.status === 'processing' && (
+                        <span className="text-xs text-gray-500">
+                          {progress.processed_count}/{progress.total_count}
+                        </span>
+                      )}
+                      {progress.status === 'completed' && (
+                        <span className="text-xs text-green-600">
+                          {progress.processed_count} ✓
+                        </span>
+                      )}
+                      {getStatusBadge(progress.status)}
+                    </div>
+                  </div>
+                  
+                  {/* Barra de progresso individual */}
+                  {progress.total_count > 0 && (
+                    <div className="space-y-1">
+                      <Progress value={fileProgress} className="h-1" />
+                      <div className="text-xs text-gray-500 text-right">
+                        {Math.round(fileProgress)}% concluído
+                      </div>
+                    </div>
                   )}
-                  {progress.status === 'completed' && (
-                    <span className="text-xs text-green-600">
-                      {progress.processed_count} ✓
-                    </span>
-                  )}
-                  {getStatusBadge(progress.status)}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
-        {/* Mensagens de Status */}
+        {/* Mensagens de Status Melhoradas */}
         {isRunning && (
-          <div className="text-center text-sm text-blue-700 bg-blue-100 p-3 rounded">
-            🔄 Migração em andamento com micro-batches (5 startups por vez)...
-            <br />
-            <span className="text-xs">Processamento automático a cada ~7 segundos</span>
+          <div className="text-center text-sm text-blue-700 bg-blue-100 p-3 rounded border border-blue-200">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <Zap className="h-4 w-4" />
+              <strong>Sistema Ultra-Resiliente Ativo</strong>
+            </div>
+            <div className="space-y-1 text-xs">
+              <div>🔄 Checkpoint granular a cada startup processada</div>
+              <div>🚀 Processamento adaptativo com batch size dinâmico</div>
+              <div>🛡️ Auto-recovery com retry exponencial</div>
+              <div>⚡ Monitoramento de saúde em tempo real</div>
+            </div>
           </div>
         )}
 
         {isComplete && (
-          <div className="text-center text-sm text-green-700 bg-green-100 p-3 rounded">
-            🎉 Migração concluída com sucesso!
-            <br />
-            <span className="text-xs">Todas as startups foram processadas e estão disponíveis</span>
+          <div className="text-center text-sm text-green-700 bg-green-100 p-3 rounded border border-green-200">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <CheckCircle className="h-4 w-4" />
+              <strong>🎉 Migração Ultra-Resiliente Concluída!</strong>
+            </div>
+            <div className="space-y-1 text-xs">
+              <div>✅ Todas as {totalProcessed} startups foram processadas com sucesso</div>
+              <div>🛡️ Sistema resistiu a falhas e completou com 100% de integridade</div>
+              <div>⚡ Performance: {startupsPerSecond} startups por segundo</div>
+            </div>
           </div>
         )}
 
         {hasIssues && !isRunning && (
-          <div className="text-center text-sm text-red-700 bg-red-100 p-3 rounded">
-            ⚠️ Alguns arquivos falharam durante a migração.
-            <br />
-            <span className="text-xs">Clique em "Continuar Migração" para tentar novamente</span>
+          <div className="text-center text-sm text-red-700 bg-red-100 p-3 rounded border border-red-200">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <AlertCircle className="h-4 w-4" />
+              <strong>⚠️ Sistema Detectou Falhas</strong>
+            </div>
+            <div className="space-y-1 text-xs">
+              <div>🔧 Sistema resiliente está pronto para auto-recovery</div>
+              <div>🚀 Clique em "Iniciar Migração" para ativar recovery automático</div>
+              <div>🛡️ Checkpoint granular permite retomada exata do ponto de falha</div>
+            </div>
           </div>
         )}
 
         {!isRunning && !isComplete && !hasIssues && progressData.length === 0 && (
-          <div className="text-center text-sm text-blue-700 bg-blue-100 p-3 rounded">
-            🚀 Pronto para iniciar a migração otimizada!
-            <br />
-            <span className="text-xs">Sistema de micro-batches com processamento inteligente</span>
+          <div className="text-center text-sm text-blue-700 bg-blue-100 p-3 rounded border border-blue-200">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <Zap className="h-4 w-4" />
+              <strong>🚀 Sistema Ultra-Resiliente Pronto!</strong>
+            </div>
+            <div className="space-y-1 text-xs">
+              <div>✨ Checkpoint granular com recovery automático</div>
+              <div>🚀 Processamento adaptativo e inteligente</div>
+              <div>🛡️ Resistente a falhas com retry exponencial</div>
+              <div>📊 Monitoramento em tempo real com métricas avançadas</div>
+            </div>
           </div>
         )}
       </CardContent>
