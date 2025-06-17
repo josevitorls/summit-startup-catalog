@@ -413,8 +413,8 @@ export function useMigrationProgress() {
 
       return data as MigrationProgress[];
     },
-    staleTime: 1000,
-    refetchInterval: 3000, // Refetch a cada 3 segundos para micro-batches
+    staleTime: 500, // Mais agressivo para controle manual
+    refetchInterval: 1000, // Refetch a cada 1 segundo para controle em tempo real
   });
 }
 

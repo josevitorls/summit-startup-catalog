@@ -201,6 +201,33 @@ export type Database = {
         }
         Relationships: []
       }
+      migration_control: {
+        Row: {
+          created_at: string
+          id: string
+          is_paused: boolean
+          is_running: boolean
+          last_checkpoint: Json | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_paused?: boolean
+          is_running?: boolean
+          last_checkpoint?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_paused?: boolean
+          is_running?: boolean
+          last_checkpoint?: Json | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       migration_progress: {
         Row: {
           batch_number: number | null
@@ -671,6 +698,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_next_migration_file: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          file_name: string
+          batch_number: number
+          resume_from: number
+        }[]
+      }
       gtrgm_compress: {
         Args: { "": unknown }
         Returns: unknown
@@ -690,6 +725,10 @@ export type Database = {
       gtrgm_out: {
         Args: { "": unknown }
         Returns: unknown
+      }
+      reset_migration_state: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
       }
       set_limit: {
         Args: { "": number }

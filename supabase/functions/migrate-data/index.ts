@@ -16,6 +16,7 @@ const CONFIG = {
   MAX_BATCH_SIZE: 3,
   BASE_RETRY_DELAY: 1000, // 1s
   TIMEOUT_PER_STARTUP: 5000, // 5s por startup
+  PAUSE_CHECK_INTERVAL: 5, // Verificar pausa a cada 5 startups
 }
 
 const JSON_FILES = [
@@ -57,9 +58,22 @@ class HealthChecker {
       return false
     }
   }
+
+  async checkPauseFlag(): Promise<boolean> {
+    try {
+      const { data, error } = await this.supabase
+        .from('migration_control')
+        .select('is_paused')
+        .single()
+      
+      return error ? false : data?.is_paused || false
+    } catch {
+      return false
+    }
+  }
 }
 
-// Processador resiliente com checkpoint granular
+// Processador resiliente com checkpoint granular e controle de pausa
 class ResilientProcessor {
   private startTime: number
   private processedCount = 0
@@ -77,6 +91,17 @@ class ResilientProcessor {
   
   private shouldContinue(): boolean {
     return this.getRemainingTime() > (CONFIG.TIMEOUT_PER_STARTUP * 2)
+  }
+
+  private async updateMigrationRunningState(isRunning: boolean) {
+    try {
+      await this.supabase
+        .from('migration_control')
+        .update({ is_running: isRunning })
+        .eq('id', (await this.supabase.from('migration_control').select('id').single()).data.id)
+    } catch (error) {
+      console.warn('Failed to update running state:', error)
+    }
   }
   
   private async updateCheckpoint(fileIndex: number, fileName: string, processedInFile: number, totalInFile: number, status: string) {
@@ -122,6 +147,21 @@ class ResilientProcessor {
       this.batchSize = Math.min(this.batchSize + 1, CONFIG.MAX_BATCH_SIZE)
     } else if (processingTime > 3000 && this.batchSize > 1) {
       this.batchSize = Math.max(this.batchSize - 1, 1)
+    }
+  }
+
+  private async checkIfStartupExists(companyId: string): Promise<boolean> {
+    try {
+      const { data, error } = await this.supabase
+        .from('startups')
+        .select('id')
+        .eq('company_id', companyId)
+        .maybeSingle()
+
+      if (error) return false
+      return !!data
+    } catch {
+      return false
     }
   }
   
@@ -247,20 +287,31 @@ class ResilientProcessor {
     }
   }
   
-  async processFile(fileIndex: number, fileName: string): Promise<{ processed: number; total: number; success: boolean }> {
-    console.log(`🚀 Processing file: ${fileName}`)
+  async processFile(fileIndex: number, fileName: string, resumeFrom: number = 0): Promise<{ processed: number; total: number; success: boolean; paused: boolean }> {
+    console.log(`🚀 Processing file: ${fileName} (resuming from ${resumeFrom})`)
+    
+    // Marcar migração como em execução
+    await this.updateMigrationRunningState(true)
     
     // Health check antes de processar
     const storageHealthy = await this.healthChecker.checkStorageHealth(fileName)
     const dbHealthy = await this.healthChecker.checkDatabaseHealth()
+    const isPaused = await this.healthChecker.checkPauseFlag()
+    
+    if (isPaused) {
+      console.log('🛑 Migration is paused, stopping execution')
+      await this.updateMigrationRunningState(false)
+      return { processed: resumeFrom, total: 0, success: false, paused: true }
+    }
     
     if (!storageHealthy || !dbHealthy) {
       console.error(`Health check failed: storage=${storageHealthy}, db=${dbHealthy}`)
-      await this.updateCheckpoint(fileIndex, fileName, 0, 0, 'failed')
-      return { processed: 0, total: 0, success: false }
+      await this.updateCheckpoint(fileIndex, fileName, resumeFrom, 0, 'failed')
+      await this.updateMigrationRunningState(false)
+      return { processed: resumeFrom, total: 0, success: false, paused: false }
     }
 
-    await this.updateCheckpoint(fileIndex, fileName, 0, 0, 'processing')
+    await this.updateCheckpoint(fileIndex, fileName, resumeFrom, 0, 'processing')
 
     try {
       // Fetch file com timeout
@@ -280,13 +331,24 @@ class ResilientProcessor {
       const data = await response.json()
       const startups = Array.isArray(data) ? data : Object.values(data)
       
-      console.log(`📊 Found ${startups.length} startups in ${fileName}`)
+      console.log(`📊 Found ${startups.length} startups in ${fileName}, starting from ${resumeFrom}`)
       
-      let processedInFile = 0
+      let processedInFile = resumeFrom
       let successfullyProcessed = 0
       
-      // Processar startups com batch adaptativo
-      for (let i = 0; i < startups.length && this.shouldContinue(); i += this.batchSize) {
+      // Processar startups com batch adaptativo, começando do ponto de retomada
+      for (let i = resumeFrom; i < startups.length && this.shouldContinue(); i += this.batchSize) {
+        // Verificar flag de pausa periodicamente
+        if (i % CONFIG.PAUSE_CHECK_INTERVAL === 0) {
+          const isPausedNow = await this.healthChecker.checkPauseFlag()
+          if (isPausedNow) {
+            console.log(`🛑 Migration paused at startup ${i}, saving checkpoint...`)
+            await this.updateCheckpoint(fileIndex, fileName, processedInFile, startups.length, 'processing')
+            await this.updateMigrationRunningState(false)
+            return { processed: processedInFile, total: startups.length, success: false, paused: true }
+          }
+        }
+        
         const batch = startups.slice(i, i + this.batchSize)
         
         for (const startup of batch) {
@@ -296,14 +358,9 @@ class ResilientProcessor {
           }
           
           try {
-            // Verificar se startup já existe
-            const { data: existingStartup } = await this.supabase
-              .from('startups')
-              .select('id')
-              .eq('company_id', startup.company_id)
-              .maybeSingle()
-
-            if (existingStartup) {
+            // Verificar se startup já existe (deduplicação)
+            const exists = await this.checkIfStartupExists(startup.company_id)
+            if (exists) {
               console.log(`⏭️ Startup ${startup.company_id} already exists, skipping...`)
               processedInFile++
               continue
@@ -373,18 +430,22 @@ class ResilientProcessor {
         isComplete ? 'completed' : 'processing'
       )
 
+      await this.updateMigrationRunningState(false)
+
       console.log(`✅ File ${fileName} processed: ${successfullyProcessed}/${processedInFile} successful`)
       
       return { 
         processed: processedInFile, 
         total: startups.length, 
-        success: isComplete 
+        success: isComplete,
+        paused: false
       }
 
     } catch (error) {
       console.error(`💥 Error processing file ${fileName}:`, error)
-      await this.updateCheckpoint(fileIndex, fileName, 0, 0, 'failed')
-      return { processed: 0, total: 0, success: false }
+      await this.updateCheckpoint(fileIndex, fileName, resumeFrom, 0, 'failed')
+      await this.updateMigrationRunningState(false)
+      return { processed: resumeFrom, total: 0, success: false, paused: false }
     }
   }
 }
@@ -400,46 +461,40 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    console.log('🚀 Starting ultra-resilient migration process...')
+    console.log('🚀 Starting ultra-resilient migration process with manual controls...')
 
-    // Obter progresso atual para determinar próximo arquivo
-    const { data: progressData } = await supabaseClient
-      .from('migration_progress')
-      .select('*')
-      .order('batch_number', { ascending: true })
+    // Verificar se migração está pausada
+    const { data: controlState } = await supabaseClient
+      .from('migration_control')
+      .select('is_paused')
+      .single()
 
-    // Determinar qual arquivo processar
-    let targetFileIndex = 0
-    let resumeFromStartup = 0
-
-    if (progressData && progressData.length > 0) {
-      // Encontrar primeiro arquivo não completo
-      const incompleteFile = progressData.find(p => p.status !== 'completed')
-      
-      if (incompleteFile) {
-        targetFileIndex = incompleteFile.batch_number
-        resumeFromStartup = incompleteFile.processed_count || 0
-        console.log(`📍 Resuming from file index ${targetFileIndex}, startup ${resumeFromStartup}`)
-      } else {
-        // Todos os arquivos foram processados
-        console.log('🎉 All files have been processed!')
-        return new Response(
-          JSON.stringify({
-            success: true,
-            message: 'Migration completed - all files processed',
-            isComplete: true
-          }),
-          {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 200,
-          }
-        )
-      }
+    if (controlState?.is_paused) {
+      console.log('🛑 Migration is paused, not starting')
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: 'Migration is paused',
+          paused: true
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        }
+      )
     }
 
-    // Validar índice do arquivo
-    if (targetFileIndex >= JSON_FILES.length) {
-      console.log('🎉 Migration completed - all files processed!')
+    // Usar função SQL para obter próximo arquivo
+    const { data: nextFileData, error: nextFileError } = await supabaseClient
+      .rpc('get_next_migration_file')
+
+    if (nextFileError) {
+      console.error('Failed to get next file:', nextFileError)
+      throw nextFileError
+    }
+
+    if (!nextFileData || nextFileData.length === 0) {
+      console.log('🎉 All files have been processed!')
       return new Response(
         JSON.stringify({
           success: true,
@@ -453,14 +508,34 @@ serve(async (req) => {
       )
     }
 
-    const fileName = JSON_FILES[targetFileIndex]
+    const { file_name: fileName, batch_number: fileIndex, resume_from: resumeFrom } = nextFileData[0]
+    
+    console.log(`📍 Processing file: ${fileName} (index: ${fileIndex}, resume from: ${resumeFrom})`)
+    
     const processor = new ResilientProcessor(supabaseClient)
     
     // Processar arquivo com sistema resiliente
-    const result = await processor.processFile(targetFileIndex, fileName)
+    const result = await processor.processFile(fileIndex, fileName, resumeFrom)
+    
+    if (result.paused) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: `Migration paused during processing of ${fileName}`,
+          file: fileName,
+          processed: result.processed,
+          total: result.total,
+          paused: true
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        }
+      )
+    }
     
     // Determinar se deve continuar automaticamente
-    const shouldTriggerNext = result.success && targetFileIndex < JSON_FILES.length - 1
+    const shouldTriggerNext = result.success && fileIndex < JSON_FILES.length - 1
     
     if (shouldTriggerNext) {
       console.log(`🔄 File ${fileName} completed. Triggering next file...`)
@@ -492,8 +567,8 @@ serve(async (req) => {
         file: fileName,
         processed: result.processed,
         total: result.total,
-        isComplete: targetFileIndex >= JSON_FILES.length - 1 && result.success,
-        nextFile: shouldTriggerNext ? JSON_FILES[targetFileIndex + 1] : null
+        isComplete: fileIndex >= JSON_FILES.length - 1 && result.success,
+        nextFile: shouldTriggerNext ? JSON_FILES[fileIndex + 1] : null
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
