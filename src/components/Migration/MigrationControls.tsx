@@ -21,7 +21,24 @@ export function MigrationControls() {
   const resetMutation = useResetMigration();
   const forceResumeMutation = useForceResume();
 
-  if (controlLoading || !controlState) {
+  // CORREÇÃO CRÍTICA: Calcular estado correto
+  const totalFiles = 13;
+  const completedFiles = progressData.filter(p => p.status === 'completed').length;
+  const failedFiles = progressData.filter(p => p.status === 'failed').length;
+  const processingFiles = progressData.filter(p => p.status === 'processing').length;
+  const pendingFiles = totalFiles - completedFiles - failedFiles - processingFiles;
+  
+  console.log('🔍 MigrationControls - Estado atual:', {
+    totalFiles,
+    completedFiles,
+    failedFiles,
+    processingFiles,
+    pendingFiles,
+    progressDataLength: progressData.length,
+    controlState
+  });
+
+  if (controlLoading) {
     return (
       <Card className="mb-4">
         <CardContent className="p-4">
@@ -33,23 +50,26 @@ export function MigrationControls() {
     );
   }
 
-  const totalFiles = 13;
-  const completedFiles = progressData.filter(p => p.status === 'completed').length;
-  const failedFiles = progressData.filter(p => p.status === 'failed').length;
-  const processingFiles = progressData.filter(p => p.status === 'processing').length;
-  const pendingFiles = totalFiles - completedFiles - failedFiles - processingFiles;
-  
-  // CORREÇÃO CRÍTICA: Sistema só está completo quando TODOS os 13 arquivos estão processed
+  // CORREÇÃO: Sistema só está completo quando TODOS os 13 arquivos estão processados
   const isComplete = completedFiles === totalFiles && failedFiles === 0;
   const hasIssues = failedFiles > 0;
-  const isPaused = controlState.is_paused;
-  const isRunning = controlState.is_running || processingFiles > 0;
+  const isPaused = controlState?.is_paused || false;
+  const isRunning = controlState?.is_running || processingFiles > 0;
   
-  // CORREÇÃO: Detectar se há trabalho pendente (arquivos não processados)
+  // CORREÇÃO CRÍTICA: Detectar se há trabalho pendente
   const hasPendingWork = pendingFiles > 0 || failedFiles > 0;
   
   // Estado de emergência: se há arquivos pendentes e não está rodando
   const needsUrgentAction = hasPendingWork && !isRunning && !isPaused;
+
+  console.log('🚨 MigrationControls - Análise de estado:', {
+    isComplete,
+    hasIssues,
+    isPaused,
+    isRunning,
+    hasPendingWork,
+    needsUrgentAction
+  });
 
   const getStatusInfo = () => {
     if (isComplete) {
@@ -109,7 +129,7 @@ export function MigrationControls() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2">
             <StatusIcon className={`h-5 w-5 ${statusInfo.color} ${isRunning ? 'animate-spin' : ''}`} />
-            Sistema de Migração Ultra-Resiliente - DESBLOQUEADO
+            Sistema de Migração Ultra-Resiliente - CONTROLES ATIVOS
           </CardTitle>
           <Badge variant={statusInfo.variant} className="flex items-center gap-1">
             <StatusIcon className="h-3 w-3" />
@@ -139,8 +159,8 @@ export function MigrationControls() {
           </div>
         </div>
 
-        {/* ALERTA DE EMERGÊNCIA SEMPRE VISÍVEL */}
-        {needsUrgentAction && (
+        {/* ALERTA DE EMERGÊNCIA SEMPRE VISÍVEL QUANDO HÁ TRABALHO PENDENTE */}
+        {hasPendingWork && (
           <div className="text-sm text-red-900 bg-red-100 p-4 rounded border-2 border-red-300">
             <div className="flex items-center gap-2 mb-2">
               <Rocket className="h-5 w-5 text-red-600" />

@@ -23,7 +23,6 @@ export default function Index() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [migrationStatus, setMigrationStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
-  const [showMigrationProgress, setShowMigrationProgress] = useState(false);
 
   // Usar dados do Supabase
   const { data: supabaseStartups = [], isLoading, error, refetch } = useStartups();
@@ -44,16 +43,57 @@ export default function Index() {
     );
   }, [startups]);
 
-  // Monitorar progresso da migração
-  const isMigrationRunning = useMemo(() => {
-    return migrationProgress.some(p => p.status === 'processing');
-  }, [migrationProgress]);
+  // CORREÇÃO CRÍTICA: Cálculo correto do progresso da migração
+  const totalFiles = 13;
+  const completedFiles = migrationProgress.filter(p => p.status === 'completed').length;
+  const processingFiles = migrationProgress.filter(p => p.status === 'processing').length;
+  const failedFiles = migrationProgress.filter(p => p.status === 'failed').length;
+  const pendingFiles = totalFiles - completedFiles - failedFiles - processingFiles;
 
+  // Monitorar progresso da migração - LÓGICA CORRIGIDA
+  const isMigrationRunning = useMemo(() => {
+    return processingFiles > 0;
+  }, [processingFiles]);
+
+  // CORREÇÃO: Sistema só está completo quando TODOS os 13 arquivos estão processados
   const migrationCompleted = useMemo(() => {
-    return migrationProgress.length > 0 && 
-           migrationProgress.every(p => p.status === 'completed' || p.status === 'failed') &&
-           migrationProgress.some(p => p.status === 'completed');
-  }, [migrationProgress]);
+    console.log('🔍 Verificando status da migração:', {
+      totalFiles,
+      completedFiles,
+      processingFiles,
+      failedFiles,
+      pendingFiles,
+      migrationProgressLength: migrationProgress.length
+    });
+    
+    return completedFiles === totalFiles && failedFiles === 0;
+  }, [completedFiles, totalFiles, failedFiles]);
+
+  // CORREÇÃO: Detectar se há trabalho pendente
+  const hasPendingWork = useMemo(() => {
+    const pending = pendingFiles > 0 || failedFiles > 0;
+    console.log('🚨 Trabalho pendente detectado:', {
+      hasPendingWork: pending,
+      pendingFiles,
+      failedFiles,
+      totalFiles,
+      completedFiles
+    });
+    return pending;
+  }, [pendingFiles, failedFiles, totalFiles, completedFiles]);
+
+  // CORREÇÃO CRÍTICA: Sempre mostrar controles quando há trabalho pendente
+  const showMigrationProgress = useMemo(() => {
+    const shouldShow = hasPendingWork || isMigrationRunning || (migrationProgress.length > 0 && !migrationCompleted);
+    console.log('📊 Decisão de mostrar controles:', {
+      shouldShow,
+      hasPendingWork,
+      isMigrationRunning,
+      migrationCompleted,
+      migrationProgressLength: migrationProgress.length
+    });
+    return shouldShow;
+  }, [hasPendingWork, isMigrationRunning, migrationProgress.length, migrationCompleted]);
 
   // Calcular startups filtradas usando useMemo e aplicar ao estado quando necessário
   const searchFilters = { ...state.filters, search: searchQuery };
@@ -73,13 +113,10 @@ export default function Index() {
   useEffect(() => {
     if (isMigrationRunning) {
       setMigrationStatus('running');
-      setShowMigrationProgress(true);
     } else if (migrationCompleted && !hasDemoData) {
       setMigrationStatus('success');
-      setShowMigrationProgress(false);
     } else if (hasDemoData || migrationProgress.length === 0) {
       setMigrationStatus('idle');
-      setShowMigrationProgress(false);
     }
   }, [isMigrationRunning, migrationCompleted, hasDemoData, migrationProgress.length]);
 
@@ -188,7 +225,6 @@ export default function Index() {
   const handleMigrateData = async () => {
     try {
       setMigrationStatus('running');
-      setShowMigrationProgress(true);
       
       const result = await migrateMutation.mutateAsync();
       
@@ -207,7 +243,6 @@ export default function Index() {
       }
     } catch (error) {
       setMigrationStatus('error');
-      setShowMigrationProgress(false);
       console.error('Migration error:', error);
       toast({
         title: "Erro na Migração",
@@ -286,11 +321,11 @@ export default function Index() {
       <Header />
       
       <main className="container mx-auto px-4 py-6">
-        {/* Migration Progress */}
+        {/* CORREÇÃO CRÍTICA: Sempre mostrar controles quando há trabalho pendente */}
         <MigrationProgressComponent isVisible={showMigrationProgress} />
 
-        {/* Migration Status */}
-        {(migrationStatus === 'idle' || migrationStatus === 'running' || hasDemoData) && !showMigrationProgress && (
+        {/* Migration Status - Mostrar quando não há controles visíveis */}
+        {!showMigrationProgress && (migrationStatus === 'idle' || migrationStatus === 'running' || hasDemoData) && (
           <Card className={`mb-6 ${
             migrationStatus === 'running' ? 'border-blue-200 bg-blue-50' :
             hasDemoData ? 'border-yellow-200 bg-yellow-50' :
