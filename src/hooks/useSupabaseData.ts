@@ -34,7 +34,7 @@ export interface SupabaseStartup {
     linkedin?: string;
     youtube?: string;
     alternative_website?: string;
-  }[];
+  };
   startup_team_members?: {
     member_id: string;
     name: string;
@@ -76,7 +76,7 @@ export interface MigrationProgress {
 
 // Converter dados do Supabase para formato legado
 function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startup {
-  const externalUrls = supabaseStartup.startup_external_urls?.[0] || {};
+  const externalUrls = supabaseStartup.startup_external_urls || {};
   const teamMembers = supabaseStartup.startup_team_members || [];
   const topics = supabaseStartup.startup_topics || [];
   const tags = supabaseStartup.startup_tags?.map(t => t.tag_name) || [];
@@ -235,7 +235,7 @@ export function useStartups() {
 
       console.log(`✅ ${data?.length || 0} startups encontradas no Supabase`);
       
-      return (data as SupabaseStartup[]).map(convertSupabaseToLegacyFormat);
+      return (data as any[]).map(convertSupabaseToLegacyFormat);
     },
     staleTime: 5 * 60 * 1000, // 5 minutos
     refetchOnWindowFocus: false,
@@ -260,7 +260,7 @@ export function useKanbanStartups() {
 
       if (error) throw error;
 
-      return (data as SupabaseStartup[]).map(convertSupabaseToLegacyFormat);
+      return (data as any[]).map(convertSupabaseToLegacyFormat);
     },
     staleTime: 5 * 60 * 1000,
   });
