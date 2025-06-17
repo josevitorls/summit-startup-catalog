@@ -7,12 +7,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Configurações otimizadas
+// Configurações ultra-conservadoras para evitar sobrecarga
 const CONFIG = {
-  BATCH_SIZE: 10, // Processar 10 startups por vez para evitar timeout
+  STARTUP_DELAY_MS: 1000, // 1 segundo entre cada startup
   MAX_RETRIES: 3,
-  TIMEOUT_MS: 45000, // 45 segundos por batch
-  PARALLEL_FILES: 3, // Processar 3 arquivos em paralelo
+  TIMEOUT_MS: 30000, // 30 segundos por startup
+  MAX_FILES_PARALLEL: 1, // Processar um arquivo por vez
 };
 
 const JSON_FILES = [
@@ -70,6 +70,10 @@ function isDemoData(startup: Startup): boolean {
   );
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function updateMigrationProgress(
   supabase: any,
   fileName: string,
@@ -106,20 +110,22 @@ async function updateMigrationProgress(
   }
 }
 
-async function processStartupBatch(
+async function processStartupOne(
   supabase: any,
-  startups: Startup[],
+  startup: Startup,
   fileName: string,
-  batchIndex: number
-): Promise<{ success: number; failed: number; errors: string[] }> {
-  const errors: string[] = [];
-  let successCount = 0;
-  let failedCount = 0;
+  startupIndex: number,
+  totalStartups: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    console.log(`📦 Processando startup ${startupIndex + 1}/${totalStartups} de ${fileName}: ${startup.name}`);
 
-  console.log(`📦 Processando batch ${batchIndex + 1} de ${fileName} com ${startups.length} startups`);
+    // Timeout por startup individual
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Timeout na startup')), CONFIG.TIMEOUT_MS);
+    });
 
-  for (const startup of startups) {
-    try {
+    const startupPromise = async () => {
       // Usar transação para garantir consistência
       const { data: insertedStartup, error: startupError } = await supabase
         .from('startups')
@@ -252,20 +258,22 @@ async function processStartupBatch(
         }
       }
 
-      successCount++;
-      
-    } catch (error) {
-      failedCount++;
-      const errorMsg = `Erro ao processar ${startup.name}: ${error.message}`;
-      errors.push(errorMsg);
-      console.error(`❌ ${errorMsg}`);
-    }
-  }
+      return { success: true };
+    };
 
-  return { success: successCount, failed: failedCount, errors };
+    // Executar com timeout
+    await Promise.race([startupPromise(), timeoutPromise]);
+    
+    return { success: true };
+    
+  } catch (error) {
+    const errorMsg = `Erro ao processar ${startup.name}: ${error.message}`;
+    console.error(`❌ ${errorMsg}`);
+    return { success: false, error: errorMsg };
+  }
 }
 
-async function processFileWithRetry(
+async function processFileSequentially(
   supabase: any,
   fileName: string,
   retryCount = 0
@@ -295,59 +303,46 @@ async function processFileWithRetry(
       return { success: 0, failed: 0, total: 0, errors: [] };
     }
 
-    // Dividir em batches menores
-    const batches = [];
-    for (let i = 0; i < validStartups.length; i += CONFIG.BATCH_SIZE) {
-      batches.push(validStartups.slice(i, i + CONFIG.BATCH_SIZE));
-    }
-
-    let totalSuccess = 0;
-    let totalFailed = 0;
+    let successCount = 0;
+    let failedCount = 0;
     const allErrors: string[] = [];
 
-    // Processar batches sequencialmente para evitar sobrecarga
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
+    // Processar startups uma por vez com delay
+    for (let i = 0; i < validStartups.length; i++) {
+      const startup = validStartups[i];
       
-      try {
-        // Adicionar timeout por batch
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Timeout no batch')), CONFIG.TIMEOUT_MS);
-        });
+      const result = await processStartupOne(supabase, startup, fileName, i, totalStartups);
+      
+      if (result.success) {
+        successCount++;
+      } else {
+        failedCount++;
+        if (result.error) allErrors.push(result.error);
+      }
 
-        const batchPromise = processStartupBatch(supabase, batch, fileName, i);
-        const result = await Promise.race([batchPromise, timeoutPromise]) as any;
+      // Atualizar progresso a cada startup
+      await updateMigrationProgress(
+        supabase,
+        fileName,
+        'processing',
+        successCount + failedCount,
+        totalStartups
+      );
 
-        totalSuccess += result.success;
-        totalFailed += result.failed;
-        allErrors.push(...result.errors);
-
-        // Atualizar progresso
-        await updateMigrationProgress(
-          supabase,
-          fileName,
-          'processing',
-          totalSuccess + totalFailed,
-          totalStartups
-        );
-
-        // Pequena pausa entre batches para não sobrecarregar
-        if (i < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-      } catch (batchError) {
-        console.error(`❌ Erro no batch ${i + 1} de ${fileName}:`, batchError.message);
-        totalFailed += batch.length;
-        allErrors.push(`Batch ${i + 1}: ${batchError.message}`);
+      // Sleep de 1 segundo entre startups (exceto na última)
+      if (i < validStartups.length - 1) {
+        console.log(`⏳ Aguardando ${CONFIG.STARTUP_DELAY_MS}ms antes da próxima startup...`);
+        await sleep(CONFIG.STARTUP_DELAY_MS);
       }
     }
 
-    await updateMigrationProgress(supabase, fileName, 'completed', totalSuccess, totalStartups);
+    await updateMigrationProgress(supabase, fileName, 'completed', successCount, totalStartups);
+    
+    console.log(`✅ ${fileName} concluído: ${successCount} sucessos, ${failedCount} falhas`);
     
     return {
-      success: totalSuccess,
-      failed: totalFailed,
+      success: successCount,
+      failed: failedCount,
       total: totalStartups,
       errors: allErrors
     };
@@ -356,9 +351,9 @@ async function processFileWithRetry(
     console.error(`❌ Erro ao processar ${fileName}:`, error.message);
     
     if (retryCount < CONFIG.MAX_RETRIES) {
-      console.log(`🔄 Tentando novamente ${fileName} em 2 segundos...`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      return processFileWithRetry(supabase, fileName, retryCount + 1);
+      console.log(`🔄 Tentando novamente ${fileName} em 5 segundos...`);
+      await sleep(5000);
+      return processFileSequentially(supabase, fileName, retryCount + 1);
     } else {
       await updateMigrationProgress(supabase, fileName, 'failed', 0, 0, error.message);
       return { success: 0, failed: 0, total: 0, errors: [error.message] };
@@ -377,7 +372,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    console.log('🚀 Iniciando migração otimizada com processamento em batches...');
+    console.log('🚀 Iniciando migração ultra-conservadora: 1 startup por segundo...');
 
     // Limpar dados anteriores e progresso
     console.log('🧹 Limpando dados anteriores...');
@@ -389,33 +384,30 @@ serve(async (req) => {
     await supabaseClient.from('startups').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     await supabaseClient.from('migration_progress').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    // Processar arquivos em grupos menores para evitar timeout
-    const fileGroups = [];
-    for (let i = 0; i < JSON_FILES.length; i += CONFIG.PARALLEL_FILES) {
-      fileGroups.push(JSON_FILES.slice(i, i + CONFIG.PARALLEL_FILES));
-    }
-
     let grandTotalSuccess = 0;
     let grandTotalFailed = 0;
     let grandTotalProcessed = 0;
     const allErrors: string[] = [];
 
-    for (const fileGroup of fileGroups) {
-      console.log(`📁 Processando grupo de ${fileGroup.length} arquivos...`);
+    // Processar arquivos um por vez sequencialmente
+    for (const fileName of JSON_FILES) {
+      console.log(`📁 Processando arquivo: ${fileName}...`);
       
-      // Processar arquivos do grupo em paralelo
-      const groupPromises = fileGroup.map(fileName => processFileWithRetry(supabaseClient, fileName));
-      const groupResults = await Promise.all(groupPromises);
+      const result = await processFileSequentially(supabaseClient, fileName);
+      
+      // Agregar resultados
+      grandTotalSuccess += result.success;
+      grandTotalFailed += result.failed;
+      grandTotalProcessed += result.total;
+      allErrors.push(...result.errors);
 
-      // Agregar resultados do grupo
-      for (const result of groupResults) {
-        grandTotalSuccess += result.success;
-        grandTotalFailed += result.failed;
-        grandTotalProcessed += result.total;
-        allErrors.push(...result.errors);
+      console.log(`✅ ${fileName} finalizado. Total até agora: ${grandTotalSuccess} sucessos, ${grandTotalFailed} falhas`);
+      
+      // Sleep de 2 segundos entre arquivos
+      if (JSON_FILES.indexOf(fileName) < JSON_FILES.length - 1) {
+        console.log('⏳ Aguardando 2 segundos antes do próximo arquivo...');
+        await sleep(2000);
       }
-
-      console.log(`✅ Grupo concluído. Total até agora: ${grandTotalSuccess} sucessos, ${grandTotalFailed} falhas`);
     }
 
     // Verificar se há dados válidos
@@ -425,7 +417,7 @@ serve(async (req) => {
 
     const response = {
       success: true,
-      message: 'Migração concluída com sucesso!',
+      message: 'Migração ultra-conservadora concluída com sucesso!',
       details: {
         totalFilesProcessed: JSON_FILES.length,
         validStartupsProcessed: grandTotalProcessed,
@@ -435,6 +427,7 @@ serve(async (req) => {
         totalSkipped: grandTotalProcessed - grandTotalSuccess,
         errors: allErrors.slice(0, 10), // Limitar erros exibidos
         totalErrors: allErrors.length,
+        processingStrategy: 'Sequential: 1 startup per second',
       }
     };
 
@@ -450,7 +443,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       success: false,
       error: error.message,
-      details: 'Erro crítico durante a migração. Verifique os logs.'
+      details: 'Erro crítico durante a migração ultra-conservadora. Verifique os logs.'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
