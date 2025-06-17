@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Plus, Settings, Eye, EyeOff } from 'lucide-react';
@@ -36,46 +35,27 @@ export default function Kanban() {
     startup => !kanbanStartups.some(k => k.company_id === startup.company_id)
   );
 
-  // Aplicar busca nas startups disponíveis
+  // Aplicar busca nas startups disponíveis com FilterState completo
   const filteredAvailable = useStartupFilters(availableStartups, {
     search: searchTerm,
     country: '',
     industry: '',
     fundingTier: '',
+    fundraising: undefined,
+    meetInvestors: undefined,
+    womenFounder: undefined,
+    blackFounder: undefined,
+    indigenousFounder: undefined,
     tags: [],
     offeringTopics: [],
-    seekingTopics: []
+    seekingTopics: [],
+    endorsedBy: [],
+    cities: [],
+    provinces: [],
+    countries: [],
+    industries: [],
+    fundingTiers: []
   });
-
-  // Agrupar startups do Kanban por coluna
-  const startupsByColumn = columns.reduce((acc, column) => {
-    acc[column.id] = kanbanStartups.filter(startup => startup.kanban_column === column.id);
-    return acc;
-  }, {} as Record<string, typeof kanbanStartups>);
-
-  const handleAddToKanban = async (companyId: string) => {
-    try {
-      await toggleKanban.mutateAsync({ companyId, showInKanban: true });
-    } catch (error) {
-      console.error('Erro ao adicionar ao Kanban:', error);
-    }
-  };
-
-  const handleRemoveFromKanban = async (companyId: string) => {
-    try {
-      await toggleKanban.mutateAsync({ companyId, showInKanban: false });
-    } catch (error) {
-      console.error('Erro ao remover do Kanban:', error);
-    }
-  };
-
-  const handleMoveStartup = async (companyId: string, newColumnId: string) => {
-    try {
-      await updateColumn.mutateAsync({ companyId, column: newColumnId });
-    } catch (error) {
-      console.error('Erro ao mover startup:', error);
-    }
-  };
 
   if (loadingAll || loadingKanban) {
     return (
@@ -232,4 +212,34 @@ export default function Kanban() {
       )}
     </div>
   );
+
+  async function handleAddToKanban(companyId: string) {
+    try {
+      await toggleKanban.mutateAsync({ companyId, showInKanban: true });
+    } catch (error) {
+      console.error('Erro ao adicionar ao Kanban:', error);
+    }
+  }
+
+  async function handleRemoveFromKanban(companyId: string) {
+    try {
+      await toggleKanban.mutateAsync({ companyId, showInKanban: false });
+    } catch (error) {
+      console.error('Erro ao remover do Kanban:', error);
+    }
+  }
+
+  async function handleMoveStartup(companyId: string, newColumnId: string) {
+    try {
+      await updateColumn.mutateAsync({ companyId, column: newColumnId });
+    } catch (error) {
+      console.error('Erro ao mover startup:', error);
+    }
+  }
+
+  // Agrupar startups do Kanban por coluna
+  const startupsByColumn = columns.reduce((acc, column) => {
+    acc[column.id] = kanbanStartups.filter(startup => startup.kanban_column === column.id);
+    return acc;
+  }, {} as Record<string, typeof kanbanStartups>);
 }
