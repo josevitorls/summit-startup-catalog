@@ -17,6 +17,7 @@ type AppAction =
   | { type: 'SET_FILTERS'; payload: Partial<FilterState> }
   | { type: 'SET_VIEW_MODE'; payload: 'cards' | 'list' | 'kanban' }
   | { type: 'SET_PAGE'; payload: number }
+  | { type: 'RESET_PAGE' }
   | { type: 'SET_ITEMS_PER_PAGE'; payload: number };
 
 const initialState: AppState = {
@@ -64,7 +65,11 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, startups: action.payload, filteredStartups: action.payload, loading: false };
     
     case 'SET_FILTERED_STARTUPS':
-      return { ...state, filteredStartups: action.payload, currentPage: 1 };
+      // Não resetar a página automaticamente - apenas quando explicitamente solicitado
+      return { ...state, filteredStartups: action.payload };
+    
+    case 'RESET_PAGE':
+      return { ...state, currentPage: 1 };
     
     case 'TOGGLE_STARTUP_SELECTION':
       const newSelection = new Set(state.selectedStartups);
@@ -127,6 +132,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         filters: { ...state.filters, ...action.payload },
+        currentPage: 1, // Resetar página apenas quando filtros mudarem
       };
     
     case 'SET_VIEW_MODE':
@@ -134,7 +140,10 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, viewMode: action.payload, itemsPerPage, currentPage: 1 };
     
     case 'SET_PAGE':
-      return { ...state, currentPage: action.payload };
+      // Validar limites da página
+      const totalPages = Math.ceil(state.filteredStartups.length / state.itemsPerPage);
+      const validPage = Math.max(1, Math.min(action.payload, totalPages || 1));
+      return { ...state, currentPage: validPage };
     
     case 'SET_ITEMS_PER_PAGE':
       return { ...state, itemsPerPage: action.payload, currentPage: 1 };

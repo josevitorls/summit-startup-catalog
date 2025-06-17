@@ -16,6 +16,7 @@ import { useStartups, useMigrateData, useMigrationProgress } from '../hooks/useS
 import { useStartupFilters } from '../hooks/useStartupFilters';
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
+import { StartupPagination } from '@/components/ui/startup-pagination';
 
 export default function Index() {
   const { state, dispatch } = useApp();
@@ -54,14 +55,19 @@ export default function Index() {
            migrationProgress.some(p => p.status === 'completed');
   }, [migrationProgress]);
 
-  // Apply filters
+  // Calcular startups filtradas usando useMemo e aplicar ao estado quando necessário
   const searchFilters = { ...state.filters, search: searchQuery };
   const filteredStartups = useStartupFilters(startups, searchFilters);
 
-  // Update filtered startups in state when filters change
-  useEffect(() => {
+  // Atualizar startups filtradas apenas quando filtros ou startups mudarem
+  React.useEffect(() => {
     dispatch({ type: 'SET_FILTERED_STARTUPS', payload: filteredStartups });
-  }, [dispatch, filteredStartups]);
+  }, [dispatch, filteredStartups.length, searchQuery, JSON.stringify(state.filters)]);
+
+  // Resetar página quando filtros mudarem significativamente
+  React.useEffect(() => {
+    dispatch({ type: 'RESET_PAGE' });
+  }, [dispatch, searchQuery, JSON.stringify(state.filters)]);
 
   // Atualizar status da migração baseado no progresso
   useEffect(() => {
@@ -77,7 +83,7 @@ export default function Index() {
     }
   }, [isMigrationRunning, migrationCompleted, hasDemoData, migrationProgress.length]);
 
-  // Pagination
+  // Pagination - usar dados do estado para consistência
   const totalPages = Math.ceil(state.filteredStartups.length / state.itemsPerPage);
   const startIndex = (state.currentPage - 1) * state.itemsPerPage;
   const endIndex = startIndex + state.itemsPerPage;
@@ -493,42 +499,15 @@ export default function Index() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-8">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(state.currentPage - 1)}
-              disabled={state.currentPage === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            
-            <div className="flex items-center gap-1">
-              {[...Array(Math.min(5, totalPages))].map((_, i) => {
-                const pageNum = Math.max(1, Math.min(totalPages - 4, state.currentPage - 2)) + i;
-                if (pageNum > totalPages) return null;
-                
-                return (
-                  <Button
-                    key={pageNum}
-                    variant={pageNum === state.currentPage ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => handlePageChange(pageNum)}
-                  >
-                    {pageNum}
-                  </Button>
-                );
-              })}
-            </div>
-            
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(state.currentPage + 1)}
-              disabled={state.currentPage === totalPages}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+          <div className="mt-8">
+            <StartupPagination
+              currentPage={state.currentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+              totalItems={state.filteredStartups.length}
+              itemsPerPage={state.itemsPerPage}
+              showInfo={true}
+            />
           </div>
         )}
 
