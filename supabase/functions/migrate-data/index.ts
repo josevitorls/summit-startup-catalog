@@ -7,12 +7,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Configurações ultra-conservadoras para evitar sobrecarga
+// Configurações ultra-conservadoras para micro-batches
 const CONFIG = {
-  STARTUP_DELAY_MS: 1000, // 1 segundo entre cada startup
+  BATCH_SIZE: 5, // Apenas 5 startups por execução
+  STARTUP_DELAY_MS: 1000, // 1 segundo entre startups
+  BATCH_DELAY_MS: 2000, // 2 segundos entre batches
   MAX_RETRIES: 3,
-  TIMEOUT_MS: 30000, // 30 segundos por startup
-  MAX_FILES_PARALLEL: 1, // Processar um arquivo por vez
+  EXECUTION_TIMEOUT_MS: 45000, // 45 segundos por execução
+  AUTO_RETRY_DELAY_MS: 5000, // 5 segundos antes de auto-retry
 };
 
 const JSON_FILES = [
@@ -52,6 +54,14 @@ interface Startup {
   attendance_ids: any[];
 }
 
+interface MigrationState {
+  currentFileIndex: number;
+  currentStartupIndex: number;
+  totalProcessed: number;
+  totalFailed: number;
+  isComplete: boolean;
+}
+
 function isDemoData(startup: Startup): boolean {
   const name = startup.name?.toLowerCase() || '';
   const companyId = startup.company_id?.toLowerCase() || '';
@@ -72,6 +82,68 @@ function isDemoData(startup: Startup): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function getMigrationState(supabase: any): Promise<MigrationState> {
+  try {
+    const { data: progressData } = await supabase
+      .from('migration_progress')
+      .select('*')
+      .order('file_name');
+
+    if (!progressData || progressData.length === 0) {
+      return {
+        currentFileIndex: 0,
+        currentStartupIndex: 0,
+        totalProcessed: 0,
+        totalFailed: 0,
+        isComplete: false
+      };
+    }
+
+    const completedFiles = progressData.filter(p => p.status === 'completed').length;
+    const lastProcessing = progressData.find(p => p.status === 'processing');
+    const totalProcessed = progressData.reduce((sum, p) => sum + (p.processed_count || 0), 0);
+    const totalFailed = progressData.filter(p => p.status === 'failed').length;
+
+    if (completedFiles === JSON_FILES.length) {
+      return {
+        currentFileIndex: JSON_FILES.length,
+        currentStartupIndex: 0,
+        totalProcessed,
+        totalFailed,
+        isComplete: true
+      };
+    }
+
+    if (lastProcessing) {
+      const fileIndex = JSON_FILES.indexOf(lastProcessing.file_name);
+      return {
+        currentFileIndex: fileIndex,
+        currentStartupIndex: lastProcessing.processed_count || 0,
+        totalProcessed,
+        totalFailed,
+        isComplete: false
+      };
+    }
+
+    return {
+      currentFileIndex: completedFiles,
+      currentStartupIndex: 0,
+      totalProcessed,
+      totalFailed,
+      isComplete: false
+    };
+  } catch (error) {
+    console.error('❌ Erro ao obter estado da migração:', error);
+    return {
+      currentFileIndex: 0,
+      currentStartupIndex: 0,
+      totalProcessed: 0,
+      totalFailed: 0,
+      isComplete: false
+    };
+  }
 }
 
 async function updateMigrationProgress(
@@ -110,26 +182,52 @@ async function updateMigrationProgress(
   }
 }
 
-async function processStartupOne(
+async function checkDuplicateStartup(supabase: any, companyId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('startups')
+      .select('id')
+      .eq('company_id', companyId)
+      .limit(1);
+
+    if (error) {
+      console.warn(`⚠️ Erro ao verificar duplicata para ${companyId}:`, error.message);
+      return false;
+    }
+
+    return data && data.length > 0;
+  } catch (error) {
+    console.warn(`⚠️ Erro ao verificar duplicata para ${companyId}:`, error);
+    return false;
+  }
+}
+
+async function processStartupWithDeduplication(
   supabase: any,
   startup: Startup,
   fileName: string,
   startupIndex: number,
   totalStartups: number
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; skipped?: boolean }> {
   try {
     console.log(`📦 Processando startup ${startupIndex + 1}/${totalStartups} de ${fileName}: ${startup.name}`);
 
-    // Timeout por startup individual
+    // Verificar se já existe
+    const isDuplicate = await checkDuplicateStartup(supabase, startup.company_id);
+    if (isDuplicate) {
+      console.log(`⏭️ Startup ${startup.name} já existe, pulando...`);
+      return { success: true, skipped: true };
+    }
+
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Timeout na startup')), CONFIG.TIMEOUT_MS);
+      setTimeout(() => reject(new Error('Timeout na startup individual')), 30000);
     });
 
     const startupPromise = async () => {
-      // Usar transação para garantir consistência
+      // Inserir startup principal
       const { data: insertedStartup, error: startupError } = await supabase
         .from('startups')
-        .upsert({
+        .insert({
           company_id: startup.company_id,
           name: startup.name,
           city: startup.city || null,
@@ -148,9 +246,6 @@ async function processStartupOne(
           logo_url: startup.logo_urls?.original || startup.logo_urls?.large || null,
           show_in_kanban: false,
           kanban_column: 'backlog',
-        }, {
-          onConflict: 'company_id',
-          ignoreDuplicates: false,
         })
         .select('id')
         .single();
@@ -161,11 +256,11 @@ async function processStartupOne(
 
       const startupId = insertedStartup.id;
 
-      // Processar URLs externas
+      // Processar URLs externas se existirem
       if (startup.external_urls && Object.keys(startup.external_urls).length > 0) {
-        const { error: urlError } = await supabase
+        await supabase
           .from('startup_external_urls')
-          .upsert({
+          .insert({
             startup_id: startupId,
             homepage: startup.external_urls.homepage || null,
             angellist: startup.external_urls.angellist || null,
@@ -176,61 +271,50 @@ async function processStartupOne(
             linkedin: startup.external_urls.linkedin || null,
             youtube: startup.external_urls.youtube || null,
             alternative_website: startup.external_urls.alternative_website || null,
-          }, {
-            onConflict: 'startup_id',
-            ignoreDuplicates: false,
           });
-
-        if (urlError) {
-          console.warn(`⚠️ Erro ao inserir URLs para ${startup.name}:`, urlError.message);
-        }
       }
 
-      // Processar membros da equipe
+      // Processar membros da equipe e tópicos
       if (startup.attendance_ids?.length > 0) {
-        for (const attendanceId of startup.attendance_ids) {
+        for (const attendanceId of startup.attendance_ids.slice(0, 1)) { // Limitar para evitar sobrecarga
           const attendance = attendanceId.data?.attendance;
-          if (!attendance?.exhibitor?.team?.edges) continue;
+          if (!attendance) continue;
 
-          for (const teamMember of attendance.exhibitor.team.edges) {
-            const member = teamMember.node;
-            if (!member?.id || !member?.name) continue;
+          // Processar membros da equipe
+          if (attendance.exhibitor?.team?.edges) {
+            for (const teamMember of attendance.exhibitor.team.edges.slice(0, 5)) { // Máximo 5 membros
+              const member = teamMember.node;
+              if (!member?.id || !member?.name) continue;
 
-            const { error: memberError } = await supabase
-              .from('startup_team_members')
-              .upsert({
-                startup_id: startupId,
-                member_id: member.id,
-                name: member.name,
-                job_title: member.jobTitle || member.role || null,
-                bio: member.bio || null,
-                avatar_url: member.avatarUrl || null,
-                first_name: member.firstName || null,
-                last_name: member.lastName || null,
-                email: member.email || null,
-                twitter_url: member.twitterUrl || null,
-                github_url: member.githubUrl || null,
-                facebook_url: member.facebookUrl || null,
-                city: member.city || null,
-                country_name: member.country?.name || null,
-                industry_name: member.industry?.name || null,
-              }, {
-                onConflict: 'startup_id,member_id',
-                ignoreDuplicates: false,
-              });
-
-            if (memberError) {
-              console.warn(`⚠️ Erro ao inserir membro ${member.name}:`, memberError.message);
+              await supabase
+                .from('startup_team_members')
+                .insert({
+                  startup_id: startupId,
+                  member_id: member.id,
+                  name: member.name,
+                  job_title: member.jobTitle || member.role || null,
+                  bio: member.bio || null,
+                  avatar_url: member.avatarUrl || null,
+                  first_name: member.firstName || null,
+                  last_name: member.lastName || null,
+                  email: member.email || null,
+                  twitter_url: member.twitterUrl || null,
+                  github_url: member.githubUrl || null,
+                  facebook_url: member.facebookUrl || null,
+                  city: member.city || null,
+                  country_name: member.country?.name || null,
+                  industry_name: member.industry?.name || null,
+                });
             }
           }
 
-          // Processar tópicos de offering e seeking
+          // Processar tópicos (limitado)
           const allTopics = [
-            ...(attendance.offeringTopics?.edges || []).map((edge: any) => ({
+            ...(attendance.offeringTopics?.edges || []).slice(0, 5).map((edge: any) => ({
               ...edge.node,
               type: 'offering'
             })),
-            ...(attendance.seekingTopics?.edges || []).map((edge: any) => ({
+            ...(attendance.seekingTopics?.edges || []).slice(0, 5).map((edge: any) => ({
               ...edge.node,
               type: 'seeking'
             })),
@@ -239,21 +323,14 @@ async function processStartupOne(
           for (const topic of allTopics) {
             if (!topic?.id || !topic?.name) continue;
 
-            const { error: topicError } = await supabase
+            await supabase
               .from('startup_topics')
-              .upsert({
+              .insert({
                 startup_id: startupId,
                 topic_id: topic.id,
                 topic_name: topic.name,
                 topic_type: topic.type,
-              }, {
-                onConflict: 'startup_id,topic_id,topic_type',
-                ignoreDuplicates: false,
               });
-
-            if (topicError) {
-              console.warn(`⚠️ Erro ao inserir tópico ${topic.name}:`, topicError.message);
-            }
           }
         }
       }
@@ -261,9 +338,7 @@ async function processStartupOne(
       return { success: true };
     };
 
-    // Executar com timeout
     await Promise.race([startupPromise(), timeoutPromise]);
-    
     return { success: true };
     
   } catch (error) {
@@ -273,91 +348,89 @@ async function processStartupOne(
   }
 }
 
-async function processFileSequentially(
+async function processMicroBatch(
   supabase: any,
   fileName: string,
-  retryCount = 0
-): Promise<{ success: number; failed: number; total: number; errors: string[] }> {
-  try {
-    console.log(`🔄 Processando arquivo: ${fileName} (tentativa ${retryCount + 1})`);
+  startups: Startup[],
+  startIndex: number,
+  batchSize: number
+): Promise<{ success: number; failed: number; skipped: number; errors: string[] }> {
+  
+  const batch = startups.slice(startIndex, startIndex + batchSize);
+  let successCount = 0;
+  let failedCount = 0;
+  let skippedCount = 0;
+  const errors: string[] = [];
+
+  console.log(`🔄 Processando micro-batch: startups ${startIndex + 1}-${startIndex + batch.length} de ${fileName}`);
+
+  for (let i = 0; i < batch.length; i++) {
+    const startup = batch[i];
+    const globalIndex = startIndex + i;
     
-    await updateMigrationProgress(supabase, fileName, 'processing');
-
-    const response = await fetch(`https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/${fileName}`);
+    const result = await processStartupWithDeduplication(supabase, startup, fileName, globalIndex, startups.length);
     
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const startups = Array.isArray(data) ? data : Object.values(data);
-    
-    // Filtrar dados de demonstração
-    const validStartups = startups.filter((startup: any) => !isDemoData(startup));
-    const totalStartups = validStartups.length;
-    
-    console.log(`📊 ${fileName}: ${totalStartups} startups válidas de ${startups.length} total`);
-
-    if (totalStartups === 0) {
-      await updateMigrationProgress(supabase, fileName, 'completed', 0, 0);
-      return { success: 0, failed: 0, total: 0, errors: [] };
-    }
-
-    let successCount = 0;
-    let failedCount = 0;
-    const allErrors: string[] = [];
-
-    // Processar startups uma por vez com delay
-    for (let i = 0; i < validStartups.length; i++) {
-      const startup = validStartups[i];
-      
-      const result = await processStartupOne(supabase, startup, fileName, i, totalStartups);
-      
-      if (result.success) {
-        successCount++;
+    if (result.success) {
+      if (result.skipped) {
+        skippedCount++;
       } else {
-        failedCount++;
-        if (result.error) allErrors.push(result.error);
+        successCount++;
       }
-
-      // Atualizar progresso a cada startup
-      await updateMigrationProgress(
-        supabase,
-        fileName,
-        'processing',
-        successCount + failedCount,
-        totalStartups
-      );
-
-      // Sleep de 1 segundo entre startups (exceto na última)
-      if (i < validStartups.length - 1) {
-        console.log(`⏳ Aguardando ${CONFIG.STARTUP_DELAY_MS}ms antes da próxima startup...`);
-        await sleep(CONFIG.STARTUP_DELAY_MS);
-      }
-    }
-
-    await updateMigrationProgress(supabase, fileName, 'completed', successCount, totalStartups);
-    
-    console.log(`✅ ${fileName} concluído: ${successCount} sucessos, ${failedCount} falhas`);
-    
-    return {
-      success: successCount,
-      failed: failedCount,
-      total: totalStartups,
-      errors: allErrors
-    };
-
-  } catch (error) {
-    console.error(`❌ Erro ao processar ${fileName}:`, error.message);
-    
-    if (retryCount < CONFIG.MAX_RETRIES) {
-      console.log(`🔄 Tentando novamente ${fileName} em 5 segundos...`);
-      await sleep(5000);
-      return processFileSequentially(supabase, fileName, retryCount + 1);
     } else {
-      await updateMigrationProgress(supabase, fileName, 'failed', 0, 0, error.message);
-      return { success: 0, failed: 0, total: 0, errors: [error.message] };
+      failedCount++;
+      if (result.error) errors.push(result.error);
     }
+
+    // Atualizar progresso
+    await updateMigrationProgress(
+      supabase,
+      fileName,
+      'processing',
+      startIndex + i + 1,
+      startups.length
+    );
+
+    // Sleep entre startups (exceto na última)
+    if (i < batch.length - 1) {
+      await sleep(CONFIG.STARTUP_DELAY_MS);
+    }
+  }
+
+  return { success: successCount, failed: failedCount, skipped: skippedCount, errors };
+}
+
+async function scheduleNextExecution(supabase: any) {
+  try {
+    console.log(`⏰ Agendando próxima execução em ${CONFIG.AUTO_RETRY_DELAY_MS}ms...`);
+    
+    // Usar setTimeout para agendar próxima execução
+    setTimeout(async () => {
+      try {
+        console.log('🔄 Executando próximo batch automaticamente...');
+        
+        const response = await fetch(
+          `https://ondcyheslxgqwigoxwrg.supabase.co/functions/v1/migrate-data`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+        
+        if (!response.ok) {
+          console.error('❌ Erro ao executar próximo batch:', response.statusText);
+        } else {
+          console.log('✅ Próximo batch iniciado com sucesso');
+        }
+      } catch (error) {
+        console.error('❌ Erro ao agendar próxima execução:', error);
+      }
+    }, CONFIG.AUTO_RETRY_DELAY_MS);
+    
+  } catch (error) {
+    console.error('❌ Erro ao agendar próxima execução:', error);
   }
 }
 
@@ -372,78 +445,124 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    console.log('🚀 Iniciando migração ultra-conservadora: 1 startup por segundo...');
+    console.log('🚀 Iniciando execução de micro-batch...');
 
-    // Limpar dados anteriores e progresso
-    console.log('🧹 Limpando dados anteriores...');
-    await supabaseClient.from('startup_tags').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabaseClient.from('startup_topics').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabaseClient.from('startup_team_members').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabaseClient.from('startup_external_urls').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabaseClient.from('startup_comments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabaseClient.from('startups').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabaseClient.from('migration_progress').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    // Obter estado atual da migração
+    const migrationState = await getMigrationState(supabaseClient);
+    console.log('📊 Estado da migração:', migrationState);
 
-    let grandTotalSuccess = 0;
-    let grandTotalFailed = 0;
-    let grandTotalProcessed = 0;
-    const allErrors: string[] = [];
-
-    // Processar arquivos um por vez sequencialmente
-    for (const fileName of JSON_FILES) {
-      console.log(`📁 Processando arquivo: ${fileName}...`);
-      
-      const result = await processFileSequentially(supabaseClient, fileName);
-      
-      // Agregar resultados
-      grandTotalSuccess += result.success;
-      grandTotalFailed += result.failed;
-      grandTotalProcessed += result.total;
-      allErrors.push(...result.errors);
-
-      console.log(`✅ ${fileName} finalizado. Total até agora: ${grandTotalSuccess} sucessos, ${grandTotalFailed} falhas`);
-      
-      // Sleep de 2 segundos entre arquivos
-      if (JSON_FILES.indexOf(fileName) < JSON_FILES.length - 1) {
-        console.log('⏳ Aguardando 2 segundos antes do próximo arquivo...');
-        await sleep(2000);
-      }
+    if (migrationState.isComplete) {
+      console.log('🎉 Migração já concluída!');
+      return new Response(JSON.stringify({
+        success: true,
+        message: 'Migração já foi concluída',
+        details: {
+          totalProcessed: migrationState.totalProcessed,
+          totalFailed: migrationState.totalFailed,
+          isComplete: true
+        }
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
-    // Verificar se há dados válidos
-    const { count: finalCount } = await supabaseClient
-      .from('startups')
-      .select('*', { count: 'exact', head: true });
+    // Verificar se é a primeira execução
+    if (migrationState.currentFileIndex === 0 && migrationState.currentStartupIndex === 0) {
+      console.log('🧹 Primeira execução - limpando dados anteriores...');
+      await supabaseClient.from('startup_tags').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabaseClient.from('startup_topics').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabaseClient.from('startup_team_members').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabaseClient.from('startup_external_urls').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabaseClient.from('startup_comments').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabaseClient.from('startups').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabaseClient.from('migration_progress').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    }
 
-    const response = {
+    const currentFileName = JSON_FILES[migrationState.currentFileIndex];
+    
+    console.log(`📁 Processando arquivo: ${currentFileName} a partir do índice ${migrationState.currentStartupIndex}`);
+
+    // Carregar arquivo atual
+    const response = await fetch(`https://raw.githubusercontent.com/josevitorls/summit-startup-catalog/main/${currentFileName}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const startups = Array.isArray(data) ? data : Object.values(data);
+    const validStartups = startups.filter((startup: any) => !isDemoData(startup));
+
+    console.log(`📊 ${currentFileName}: ${validStartups.length} startups válidas de ${startups.length} total`);
+
+    if (migrationState.currentStartupIndex === 0) {
+      await updateMigrationProgress(supabaseClient, currentFileName, 'processing', 0, validStartups.length);
+    }
+
+    // Processar micro-batch
+    const result = await processMicroBatch(
+      supabaseClient, 
+      currentFileName, 
+      validStartups, 
+      migrationState.currentStartupIndex, 
+      CONFIG.BATCH_SIZE
+    );
+
+    const newStartupIndex = migrationState.currentStartupIndex + CONFIG.BATCH_SIZE;
+    const isFileComplete = newStartupIndex >= validStartups.length;
+
+    console.log(`✅ Micro-batch processado: ${result.success} sucessos, ${result.failed} falhas, ${result.skipped} puladas`);
+
+    if (isFileComplete) {
+      // Arquivo concluído
+      await updateMigrationProgress(supabaseClient, currentFileName, 'completed', validStartups.length, validStartups.length);
+      console.log(`🎯 Arquivo ${currentFileName} concluído!`);
+      
+      // Verificar se há mais arquivos
+      if (migrationState.currentFileIndex + 1 < JSON_FILES.length) {
+        console.log('📂 Há mais arquivos para processar, agendando próxima execução...');
+        scheduleNextExecution(supabaseClient);
+      } else {
+        console.log('🎉 Todos os arquivos processados! Migração concluída!');
+      }
+    } else {
+      // Ainda há startups neste arquivo
+      console.log(`📋 Ainda há startups em ${currentFileName}, agendando próxima execução...`);
+      scheduleNextExecution(supabaseClient);
+    }
+
+    const response_data = {
       success: true,
-      message: 'Migração ultra-conservadora concluída com sucesso!',
+      message: `Micro-batch processado: ${result.success} sucessos, ${result.skipped} puladas, ${result.failed} falhas`,
       details: {
-        totalFilesProcessed: JSON_FILES.length,
-        validStartupsProcessed: grandTotalProcessed,
-        successfulInserts: grandTotalSuccess,
-        failedInserts: grandTotalFailed,
-        finalCount: finalCount || 0,
-        totalSkipped: grandTotalProcessed - grandTotalSuccess,
-        errors: allErrors.slice(0, 10), // Limitar erros exibidos
-        totalErrors: allErrors.length,
-        processingStrategy: 'Sequential: 1 startup per second',
+        currentFile: currentFileName,
+        currentFileIndex: migrationState.currentFileIndex + 1,
+        totalFiles: JSON_FILES.length,
+        startupsBatchProcessed: result.success + result.failed + result.skipped,
+        startupsRemaining: Math.max(0, validStartups.length - newStartupIndex),
+        totalProcessed: migrationState.totalProcessed + result.success,
+        totalFailed: migrationState.totalFailed + result.failed,
+        totalSkipped: result.skipped,
+        isFileComplete,
+        isComplete: isFileComplete && (migrationState.currentFileIndex + 1 >= JSON_FILES.length),
+        errors: result.errors.slice(0, 3),
+        processingStrategy: `Micro-batches: ${CONFIG.BATCH_SIZE} startups por execução`,
+        nextExecutionScheduled: !isFileComplete || (migrationState.currentFileIndex + 1 < JSON_FILES.length)
       }
     };
 
-    console.log('🎉 Migração finalizada:', response);
+    console.log('📋 Resposta da execução:', response_data);
 
-    return new Response(JSON.stringify(response), {
+    return new Response(JSON.stringify(response_data), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
-    console.error('💥 Erro crítico na migração:', error);
+    console.error('💥 Erro crítico na execução:', error);
 
     return new Response(JSON.stringify({
       success: false,
       error: error.message,
-      details: 'Erro crítico durante a migração ultra-conservadora. Verifique os logs.'
+      details: 'Erro crítico durante a execução do micro-batch. Verifique os logs.'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

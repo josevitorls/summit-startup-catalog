@@ -54,7 +54,7 @@ export interface SupabaseStartup {
   startup_topics?: {
     topic_id: string;
     topic_name: string;
-    topic_type: string; // Mudado de 'offering' | 'seeking' para string
+    topic_type: string;
   }[];
   startup_tags?: {
     tag_name: string;
@@ -74,31 +74,39 @@ export interface MigrationProgress {
   batch_number: number;
 }
 
-// Converter dados do Supabase para formato legado
+// Converter dados do Supabase para formato legado com fallbacks seguros
 function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startup {
   const externalUrls = supabaseStartup.startup_external_urls || {};
   const teamMembers = supabaseStartup.startup_team_members || [];
   const topics = supabaseStartup.startup_topics || [];
   const tags = supabaseStartup.startup_tags?.map(t => t.tag_name) || [];
 
-  // Criar estrutura legada de attendance_ids
+  // Criar estrutura legada de attendance_ids com dados seguros
   const attendanceIds = [{
     data: {
       attendance: {
-        id: 'mock-id',
+        id: `mock-${supabaseStartup.company_id}`,
         role: 'exhibitor',
         name: supabaseStartup.name,
-        avatarUrl: supabaseStartup.logo_url,
+        avatarUrl: supabaseStartup.logo_url || '',
         firstName: '',
         lastName: '',
-        twitterUrl: '',
+        twitterUrl: externalUrls.twitter || '',
         githubUrl: '',
-        facebookUrl: '',
+        facebookUrl: externalUrls.facebook || '',
         jobTitle: '',
         companyName: supabaseStartup.name,
-        city: supabaseStartup.city,
-        country: supabaseStartup.country ? { id: 'mock', name: supabaseStartup.country, __typename: 'Country' } : undefined,
-        industry: supabaseStartup.industry ? { id: 'mock', name: supabaseStartup.industry, __typename: 'Industry' } : undefined,
+        city: supabaseStartup.city || '',
+        country: supabaseStartup.country ? { 
+          id: 'mock', 
+          name: supabaseStartup.country, 
+          __typename: 'Country' 
+        } : null,
+        industry: supabaseStartup.industry ? { 
+          id: 'mock', 
+          name: supabaseStartup.industry, 
+          __typename: 'Industry' 
+        } : null,
         email: '',
         bio: supabaseStartup.elevator_pitch || '',
         __typename: 'Attendance',
@@ -120,22 +128,32 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
                 role: member.job_title || '',
                 companyName: supabaseStartup.name,
                 jobTitle: member.job_title || '',
-                avatarUrl: member.avatar_url,
-                firstName: member.first_name,
-                lastName: member.last_name,
-                city: member.city,
-                country: member.country_name ? { id: 'mock', name: member.country_name, __typename: 'Country' } : undefined,
-                industry: member.industry_name ? { id: 'mock', name: member.industry_name, __typename: 'Industry' } : undefined,
-                email: member.email,
+                avatarUrl: member.avatar_url || '',
+                firstName: member.first_name || '',
+                lastName: member.last_name || '',
+                city: member.city || '',
+                country: member.country_name ? { 
+                  id: 'mock', 
+                  name: member.country_name, 
+                  __typename: 'Country' 
+                } : null,
+                industry: member.industry_name ? { 
+                  id: 'mock', 
+                  name: member.industry_name, 
+                  __typename: 'Industry' 
+                } : null,
+                email: member.email || '',
                 bio: member.bio || '',
-                twitterUrl: member.twitter_url,
-                githubUrl: member.github_url,
-                facebookUrl: member.facebook_url,
+                twitterUrl: member.twitter_url || '',
+                githubUrl: member.github_url || '',
+                facebookUrl: member.facebook_url || '',
                 __typename: 'Attendee'
               },
               __typename: 'AttendeeEdge'
-            }))
-          }
+            })),
+            __typename: 'AttendeeConnection'
+          },
+          __typename: 'Exhibitor'
         },
         offeringTopics: {
           edges: topics
@@ -184,8 +202,8 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
     startup_indigenous_founder: supabaseStartup.startup_indigenous_founder,
     endorsed_by: supabaseStartup.endorsed_by,
     logo_urls: {
-      tinythumb: '',
-      tiny: '',
+      tinythumb: supabaseStartup.logo_url || '',
+      tiny: supabaseStartup.logo_url || '',
       thumb: supabaseStartup.logo_url || '',
       medium: supabaseStartup.logo_url || '',
       large: supabaseStartup.logo_url || '',
@@ -205,7 +223,6 @@ function convertSupabaseToLegacyFormat(supabaseStartup: SupabaseStartup): Startu
     attendance_ids: attendanceIds,
     tags,
     selected: false,
-    // Adicionar propriedades do Kanban
     show_in_kanban: supabaseStartup.show_in_kanban,
     kanban_column: supabaseStartup.kanban_column
   };
@@ -215,76 +232,107 @@ export function useStartups() {
   return useQuery({
     queryKey: ['startups'],
     queryFn: async () => {
-      console.log('🔍 Buscando startups do Supabase com queries corrigidas...');
+      console.log('🔍 Buscando startups do Supabase otimizado...');
       
-      // Query principal para startups
-      const { data: startupsData, error: startupsError } = await supabase
-        .from('startups')
-        .select('*')
-        .order('name');
+      try {
+        // Query principal para startups com limite para performance
+        const { data: startupsData, error: startupsError } = await supabase
+          .from('startups')
+          .select('*')
+          .order('name')
+          .limit(2000); // Limite de segurança
 
-      if (startupsError) {
-        console.error('❌ Erro ao buscar startups:', startupsError);
-        throw startupsError;
-      }
+        if (startupsError) {
+          console.error('❌ Erro ao buscar startups:', startupsError);
+          throw startupsError;
+        }
 
-      console.log(`✅ ${startupsData?.length || 0} startups principais encontradas`);
+        if (!startupsData || startupsData.length === 0) {
+          console.log('📭 Nenhuma startup encontrada');
+          return [];
+        }
 
-      // Para cada startup, buscar dados relacionados usando left joins otimizados
-      const enrichedStartups = await Promise.all(
-        startupsData.map(async (startup) => {
-          try {
-            // Buscar external URLs (relação 1:1)
-            const { data: externalUrls } = await supabase
-              .from('startup_external_urls')
-              .select('homepage, angellist, crunchbase, instagram, twitter, facebook, linkedin, youtube, alternative_website')
-              .eq('startup_id', startup.id)
-              .maybeSingle();
+        console.log(`✅ ${startupsData.length} startups principais encontradas`);
 
-            // Buscar team members (relação 1:N)
-            const { data: teamMembers } = await supabase
-              .from('startup_team_members')
-              .select('member_id, name, job_title, bio, avatar_url, first_name, last_name, email, twitter_url, github_url, facebook_url, city, country_name, industry_name')
-              .eq('startup_id', startup.id);
+        // Buscar dados relacionados em lotes para melhor performance
+        const startupIds = startupsData.map(s => s.id);
 
-            // Buscar topics (relação 1:N)
-            const { data: topics } = await supabase
-              .from('startup_topics')
-              .select('topic_id, topic_name, topic_type')
-              .eq('startup_id', startup.id);
+        const [externalUrlsData, teamMembersData, topicsData, tagsData] = await Promise.all([
+          supabase
+            .from('startup_external_urls')
+            .select('startup_id, homepage, angellist, crunchbase, instagram, twitter, facebook, linkedin, youtube, alternative_website')
+            .in('startup_id', startupIds),
+          
+          supabase
+            .from('startup_team_members')
+            .select('startup_id, member_id, name, job_title, bio, avatar_url, first_name, last_name, email, twitter_url, github_url, facebook_url, city, country_name, industry_name')
+            .in('startup_id', startupIds)
+            .limit(1000), // Limite para evitar sobrecarga
+          
+          supabase
+            .from('startup_topics')
+            .select('startup_id, topic_id, topic_name, topic_type')
+            .in('startup_id', startupIds)
+            .limit(2000), // Limite para evitar sobrecarga
+          
+          supabase
+            .from('startup_tags')
+            .select('startup_id, tag_name, created_by')
+            .in('startup_id', startupIds)
+            .limit(1000) // Limite para evitar sobrecarga
+        ]);
 
-            // Buscar tags (relação 1:N)
-            const { data: tags } = await supabase
-              .from('startup_tags')
-              .select('tag_name, created_by')
-              .eq('startup_id', startup.id);
+        // Criar mapas para lookup eficiente
+        const externalUrlsMap = new Map();
+        externalUrlsData.data?.forEach(url => {
+          externalUrlsMap.set(url.startup_id, url);
+        });
 
-            return {
-              ...startup,
-              startup_external_urls: externalUrls,
-              startup_team_members: teamMembers || [],
-              startup_topics: topics || [],
-              startup_tags: tags || []
-            } as SupabaseStartup;
-          } catch (error) {
-            console.warn(`⚠️ Erro ao enriquecer dados da startup ${startup.name}:`, error);
-            return {
-              ...startup,
-              startup_external_urls: {},
-              startup_team_members: [],
-              startup_topics: [],
-              startup_tags: []
-            } as SupabaseStartup;
+        const teamMembersMap = new Map();
+        teamMembersData.data?.forEach(member => {
+          if (!teamMembersMap.has(member.startup_id)) {
+            teamMembersMap.set(member.startup_id, []);
           }
-        })
-      );
+          teamMembersMap.get(member.startup_id).push(member);
+        });
 
-      console.log(`✅ ${enrichedStartups.length} startups enriquecidas com dados relacionados`);
-      
-      return enrichedStartups.map(convertSupabaseToLegacyFormat);
+        const topicsMap = new Map();
+        topicsData.data?.forEach(topic => {
+          if (!topicsMap.has(topic.startup_id)) {
+            topicsMap.set(topic.startup_id, []);
+          }
+          topicsMap.get(topic.startup_id).push(topic);
+        });
+
+        const tagsMap = new Map();
+        tagsData.data?.forEach(tag => {
+          if (!tagsMap.has(tag.startup_id)) {
+            tagsMap.set(tag.startup_id, []);
+          }
+          tagsMap.get(tag.startup_id).push(tag);
+        });
+
+        // Enriquecer dados usando os mapas
+        const enrichedStartups = startupsData.map(startup => ({
+          ...startup,
+          startup_external_urls: externalUrlsMap.get(startup.id) || {},
+          startup_team_members: teamMembersMap.get(startup.id) || [],
+          startup_topics: topicsMap.get(startup.id) || [],
+          startup_tags: tagsMap.get(startup.id) || []
+        }) as SupabaseStartup);
+
+        console.log(`✅ ${enrichedStartups.length} startups enriquecidas com dados relacionados`);
+        
+        return enrichedStartups.map(convertSupabaseToLegacyFormat);
+      } catch (error) {
+        console.error('💥 Erro ao buscar startups:', error);
+        throw error;
+      }
     },
     staleTime: 5 * 60 * 1000, // 5 minutos
     refetchOnWindowFocus: false,
+    retry: 2,
+    retryDelay: 1000,
   });
 }
 
@@ -294,7 +342,6 @@ export function useKanbanStartups() {
     queryFn: async () => {
       console.log('🔍 Buscando startups do Kanban...');
       
-      // Query principal para startups do kanban
       const { data: startupsData, error: startupsError } = await supabase
         .from('startups')
         .select('*')
@@ -303,7 +350,6 @@ export function useKanbanStartups() {
 
       if (startupsError) throw startupsError;
 
-      // Enriquecer dados da mesma forma que useStartups
       const enrichedStartups = await Promise.all(
         startupsData.map(async (startup) => {
           try {
@@ -367,8 +413,8 @@ export function useMigrationProgress() {
 
       return data as MigrationProgress[];
     },
-    staleTime: 1000, // 1 segundo para monitoramento em tempo real
-    refetchInterval: 2000, // Refetch a cada 2 segundos durante migração
+    staleTime: 1000,
+    refetchInterval: 3000, // Refetch a cada 3 segundos para micro-batches
   });
 }
 
@@ -386,7 +432,7 @@ export function useIndustries() {
 
       return data.map(item => item.name);
     },
-    staleTime: 10 * 60 * 1000, // 10 minutos
+    staleTime: 10 * 60 * 1000,
   });
 }
 
@@ -432,7 +478,7 @@ export function useMigrateData() {
   
   return useMutation({
     mutationFn: async () => {
-      console.log('🚀 Iniciando migração via Edge Function otimizada...');
+      console.log('🚀 Iniciando micro-batch via Edge Function...');
       
       const { data, error } = await supabase.functions.invoke('migrate-data');
       
@@ -441,12 +487,11 @@ export function useMigrateData() {
         throw error;
       }
       
-      console.log('✅ Migração concluída:', data);
+      console.log('✅ Micro-batch processado:', data);
       return data;
     },
     onSuccess: (data) => {
-      console.log('🎉 Migração bem-sucedida, invalidando cache...');
-      // Invalidar cache para recarregar dados
+      console.log('🎉 Micro-batch bem-sucedido, invalidando cache...');
       queryClient.invalidateQueries({ queryKey: ['startups'] });
       queryClient.invalidateQueries({ queryKey: ['industries'] });
       queryClient.invalidateQueries({ queryKey: ['funding-tiers'] });
