@@ -201,6 +201,42 @@ export type Database = {
         }
         Relationships: []
       }
+      migration_progress: {
+        Row: {
+          batch_number: number | null
+          completed_at: string | null
+          error_message: string | null
+          file_name: string
+          id: string
+          processed_count: number | null
+          started_at: string | null
+          status: string
+          total_count: number | null
+        }
+        Insert: {
+          batch_number?: number | null
+          completed_at?: string | null
+          error_message?: string | null
+          file_name: string
+          id?: string
+          processed_count?: number | null
+          started_at?: string | null
+          status?: string
+          total_count?: number | null
+        }
+        Update: {
+          batch_number?: number | null
+          completed_at?: string | null
+          error_message?: string | null
+          file_name?: string
+          id?: string
+          processed_count?: number | null
+          started_at?: string | null
+          status?: string
+          total_count?: number | null
+        }
+        Relationships: []
+      }
       predefined_tags: {
         Row: {
           category: string | null
@@ -327,6 +363,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "fk_startup_comments_startup_id"
+            columns: ["startup_id"]
+            isOneToOne: false
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "startup_comments_startup_id_fkey"
             columns: ["startup_id"]
             isOneToOne: false
@@ -380,9 +423,16 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "fk_startup_external_urls_startup_id"
+            columns: ["startup_id"]
+            isOneToOne: true
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "startup_external_urls_startup_id_fkey"
             columns: ["startup_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "startups"
             referencedColumns: ["id"]
           },
@@ -411,6 +461,13 @@ export type Database = {
           tag_name?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_startup_tags_startup_id"
+            columns: ["startup_id"]
+            isOneToOne: false
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "startup_tags_startup_id_fkey"
             columns: ["startup_id"]
@@ -480,6 +537,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "fk_startup_team_members_startup_id"
+            columns: ["startup_id"]
+            isOneToOne: false
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "startup_team_members_startup_id_fkey"
             columns: ["startup_id"]
             isOneToOne: false
@@ -514,6 +578,13 @@ export type Database = {
           topic_type?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_startup_topics_startup_id"
+            columns: ["startup_id"]
+            isOneToOne: false
+            referencedRelation: "startups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "startup_topics_startup_id_fkey"
             columns: ["startup_id"]

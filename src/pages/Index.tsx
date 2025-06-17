@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useState } from 'react';
 import { Header } from '../components/Layout/Header';
 import { StartupCard } from '../components/StartupCard/StartupCard';
@@ -7,12 +6,13 @@ import { StartupStats } from '../components/Analytics/StartupStats';
 import { GlobalSearch } from '../components/Search/GlobalSearch';
 import { QuickFilters } from '../components/StartupFilters/QuickFilters';
 import { ExportOptions } from '../components/Export/ExportOptions';
+import { MigrationProgressComponent } from '../components/Migration/MigrationProgress';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ChevronLeft, ChevronRight, CheckSquare, Square, Upload, Filter, Database, AlertCircle, CheckCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
-import { useStartups, useMigrateData } from '../hooks/useSupabaseData';
+import { useStartups, useMigrateData, useMigrationProgress } from '../hooks/useSupabaseData';
 import { useStartupFilters } from '../hooks/useStartupFilters';
 import { useToast } from '@/hooks/use-toast';
 import { Link } from 'react-router-dom';
@@ -22,10 +22,11 @@ export default function Index() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [migrationStatus, setMigrationStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
-  const [migrationProgress, setMigrationProgress] = useState<string>('');
+  const [showMigrationProgress, setShowMigrationProgress] = useState(false);
 
   // Usar dados do Supabase
   const { data: supabaseStartups = [], isLoading, error, refetch } = useStartups();
+  const { data: migrationProgress = [] } = useMigrationProgress();
   const migrateMutation = useMigrateData();
 
   // Usar dados do Supabase se disponíveis, caso contrário usar dados JSON como fallback
@@ -42,6 +43,17 @@ export default function Index() {
     );
   }, [startups]);
 
+  // Monitorar progresso da migração
+  const isMigrationRunning = useMemo(() => {
+    return migrationProgress.some(p => p.status === 'processing');
+  }, [migrationProgress]);
+
+  const migrationCompleted = useMemo(() => {
+    return migrationProgress.length > 0 && 
+           migrationProgress.every(p => p.status === 'completed' || p.status === 'failed') &&
+           migrationProgress.some(p => p.status === 'completed');
+  }, [migrationProgress]);
+
   // Apply filters
   const searchFilters = { ...state.filters, search: searchQuery };
   const filteredStartups = useStartupFilters(startups, searchFilters);
@@ -51,15 +63,19 @@ export default function Index() {
     dispatch({ type: 'SET_FILTERED_STARTUPS', payload: filteredStartups });
   }, [dispatch, filteredStartups]);
 
-  // Reset migration status when demo data is detected
+  // Atualizar status da migração baseado no progresso
   useEffect(() => {
-    if (hasDemoData && supabaseStartups.length > 0) {
-      setMigrationStatus('idle');
-      setMigrationProgress('');
-    } else if (supabaseStartups.length > 0 && !hasDemoData) {
+    if (isMigrationRunning) {
+      setMigrationStatus('running');
+      setShowMigrationProgress(true);
+    } else if (migrationCompleted && !hasDemoData) {
       setMigrationStatus('success');
+      setShowMigrationProgress(false);
+    } else if (hasDemoData || migrationProgress.length === 0) {
+      setMigrationStatus('idle');
+      setShowMigrationProgress(false);
     }
-  }, [hasDemoData, supabaseStartups.length]);
+  }, [isMigrationRunning, migrationCompleted, hasDemoData, migrationProgress.length]);
 
   // Pagination
   const totalPages = Math.ceil(state.filteredStartups.length / state.itemsPerPage);
@@ -140,26 +156,26 @@ export default function Index() {
   const handleMigrateData = async () => {
     try {
       setMigrationStatus('running');
-      setMigrationProgress('Iniciando migração dos dados válidos...');
+      setShowMigrationProgress(true);
       
       const result = await migrateMutation.mutateAsync();
       
       if (result.success) {
-        setMigrationStatus('success');
-        setMigrationProgress('');
         toast({
-          title: "Migração Concluída com Sucesso!",
-          description: `${result.finalCount} startups válidas foram importadas. ${result.totalSkipped} dados de demonstração foram descartados.`,
+          title: "Migração Iniciada com Sucesso!",
+          description: `Processamento em lotes foi iniciado. Acompanhe o progresso abaixo.`,
         });
         
-        // Recarregar dados após migração
-        refetch();
+        // Recarregar dados após alguns segundos
+        setTimeout(() => {
+          refetch();
+        }, 3000);
       } else {
         throw new Error(result.error || 'Erro desconhecido na migração');
       }
     } catch (error) {
       setMigrationStatus('error');
-      setMigrationProgress('');
+      setShowMigrationProgress(false);
       console.error('Migration error:', error);
       toast({
         title: "Erro na Migração",
@@ -238,8 +254,11 @@ export default function Index() {
       <Header />
       
       <main className="container mx-auto px-4 py-6">
+        {/* Migration Progress */}
+        <MigrationProgressComponent isVisible={showMigrationProgress} />
+
         {/* Migration Status */}
-        {(migrationStatus === 'idle' || migrationStatus === 'running' || hasDemoData) && (
+        {(migrationStatus === 'idle' || migrationStatus === 'running' || hasDemoData) && !showMigrationProgress && (
           <Card className={`mb-6 ${
             migrationStatus === 'running' ? 'border-blue-200 bg-blue-50' :
             hasDemoData ? 'border-yellow-200 bg-yellow-50' :
@@ -263,16 +282,16 @@ export default function Index() {
                     }`}>
                       {migrationStatus === 'running' ? 'Migração em Andamento' :
                        hasDemoData ? 'Dados de Demonstração Detectados' :
-                       'Dados Não Migrados'}
+                       'Sistema Otimizado - Pronto para Migração'}
                     </h3>
                     <p className={`text-sm ${
                       migrationStatus === 'running' ? 'text-blue-700' :
                       hasDemoData ? 'text-yellow-700' :
                       'text-blue-700'
                     }`}>
-                      {migrationProgress || 
-                       (hasDemoData ? 'Dados de demonstração foram detectados. Execute a migração para importar apenas dados válidos dos 13 arquivos JSON.' :
-                        'Execute a migração para importar dados válidos dos 13 arquivos JSON do GitHub.')}
+                      {migrationStatus === 'running' ? 'Processamento em batches otimizado está em execução. O progresso será exibido acima.' :
+                       hasDemoData ? 'Dados de demonstração detectados. Execute a migração otimizada para importar dados válidos com processamento em batches.' :
+                       'Sistema com schema otimizado e processamento em batches. Execute a migração para importar dados dos 13 arquivos JSON.'}
                     </p>
                   </div>
                 </div>
@@ -283,17 +302,11 @@ export default function Index() {
                     className={hasDemoData ? "bg-yellow-600 hover:bg-yellow-700" : "bg-blue-600 hover:bg-blue-700"}
                   >
                     <Upload className="h-4 w-4 mr-2" />
-                    {migrateMutation.isPending ? 'Migrando...' : 
-                     hasDemoData ? 'Limpar e Migrar Dados' : 'Migrar Dados'}
+                    {migrateMutation.isPending ? 'Iniciando...' : 
+                     hasDemoData ? 'Limpar e Migrar (Otimizado)' : 'Migrar Dados (Otimizado)'}
                   </Button>
                 )}
               </div>
-              {migrationProgress && (
-                <div className="mt-3 flex items-center gap-2">
-                  <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
-                  <span className="text-sm text-blue-700">{migrationProgress}</span>
-                </div>
-              )}
             </CardContent>
           </Card>
         )}
@@ -305,9 +318,9 @@ export default function Index() {
               <div className="flex items-center gap-3">
                 <CheckCircle className="h-6 w-6 text-green-600" />
                 <div>
-                  <h3 className="font-semibold text-green-900">Dados Migrados com Sucesso</h3>
+                  <h3 className="font-semibold text-green-900">Migração Otimizada Concluída</h3>
                   <p className="text-sm text-green-700">
-                    {supabaseStartups.length} startups válidas carregadas do Supabase. Todos os dados de demonstração foram eliminados.
+                    {supabaseStartups.length} startups válidas carregadas com processamento em batches. Schema otimizado e dados consistentes.
                   </p>
                 </div>
               </div>

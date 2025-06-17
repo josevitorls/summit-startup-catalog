@@ -1,4 +1,3 @@
-
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Startup } from '../types/startup';
@@ -61,6 +60,18 @@ export interface SupabaseStartup {
     tag_name: string;
     created_by: string;
   }[];
+}
+
+export interface MigrationProgress {
+  id: string;
+  file_name: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  processed_count: number;
+  total_count: number;
+  error_message?: string;
+  started_at: string;
+  completed_at?: string;
+  batch_number: number;
 }
 
 // Converter dados do Supabase para formato legado
@@ -255,6 +266,24 @@ export function useKanbanStartups() {
   });
 }
 
+export function useMigrationProgress() {
+  return useQuery({
+    queryKey: ['migration-progress'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('migration_progress')
+        .select('*')
+        .order('file_name');
+
+      if (error) throw error;
+
+      return data as MigrationProgress[];
+    },
+    staleTime: 1000, // 1 segundo para monitoramento em tempo real
+    refetchInterval: 2000, // Refetch a cada 2 segundos durante migração
+  });
+}
+
 export function useIndustries() {
   return useQuery({
     queryKey: ['industries'],
@@ -315,7 +344,7 @@ export function useMigrateData() {
   
   return useMutation({
     mutationFn: async () => {
-      console.log('🚀 Iniciando migração via Edge Function...');
+      console.log('🚀 Iniciando migração via Edge Function otimizada...');
       
       const { data, error } = await supabase.functions.invoke('migrate-data');
       
@@ -333,6 +362,7 @@ export function useMigrateData() {
       queryClient.invalidateQueries({ queryKey: ['startups'] });
       queryClient.invalidateQueries({ queryKey: ['industries'] });
       queryClient.invalidateQueries({ queryKey: ['funding-tiers'] });
+      queryClient.invalidateQueries({ queryKey: ['migration-progress'] });
     },
     onError: (error) => {
       console.error('💥 Erro na mutação de migração:', error);
