@@ -215,27 +215,73 @@ export function useStartups() {
   return useQuery({
     queryKey: ['startups'],
     queryFn: async () => {
-      console.log('🔍 Buscando startups do Supabase...');
+      console.log('🔍 Buscando startups do Supabase com queries corrigidas...');
       
-      const { data, error } = await supabase
+      // Query principal para startups
+      const { data: startupsData, error: startupsError } = await supabase
         .from('startups')
-        .select(`
-          *,
-          startup_external_urls(*),
-          startup_team_members(*),
-          startup_topics(*),
-          startup_tags(*)
-        `)
+        .select('*')
         .order('name');
 
-      if (error) {
-        console.error('❌ Erro ao buscar startups:', error);
-        throw error;
+      if (startupsError) {
+        console.error('❌ Erro ao buscar startups:', startupsError);
+        throw startupsError;
       }
 
-      console.log(`✅ ${data?.length || 0} startups encontradas no Supabase`);
+      console.log(`✅ ${startupsData?.length || 0} startups principais encontradas`);
+
+      // Para cada startup, buscar dados relacionados usando left joins otimizados
+      const enrichedStartups = await Promise.all(
+        startupsData.map(async (startup) => {
+          try {
+            // Buscar external URLs (relação 1:1)
+            const { data: externalUrls } = await supabase
+              .from('startup_external_urls')
+              .select('homepage, angellist, crunchbase, instagram, twitter, facebook, linkedin, youtube, alternative_website')
+              .eq('startup_id', startup.id)
+              .maybeSingle();
+
+            // Buscar team members (relação 1:N)
+            const { data: teamMembers } = await supabase
+              .from('startup_team_members')
+              .select('member_id, name, job_title, bio, avatar_url, first_name, last_name, email, twitter_url, github_url, facebook_url, city, country_name, industry_name')
+              .eq('startup_id', startup.id);
+
+            // Buscar topics (relação 1:N)
+            const { data: topics } = await supabase
+              .from('startup_topics')
+              .select('topic_id, topic_name, topic_type')
+              .eq('startup_id', startup.id);
+
+            // Buscar tags (relação 1:N)
+            const { data: tags } = await supabase
+              .from('startup_tags')
+              .select('tag_name, created_by')
+              .eq('startup_id', startup.id);
+
+            return {
+              ...startup,
+              startup_external_urls: externalUrls,
+              startup_team_members: teamMembers || [],
+              startup_topics: topics || [],
+              startup_tags: tags || []
+            };
+          } catch (error) {
+            console.warn(`⚠️ Erro ao enriquecer dados da startup ${startup.name}:`, error);
+            return {
+              ...startup,
+              startup_external_urls: {},
+              startup_team_members: [],
+              startup_topics: [],
+              startup_tags: []
+            };
+          }
+        })
+      );
+
+      console.log(`✅ ${enrichedStartups.length} startups enriquecidas com dados relacionados`);
       
-      return (data as any[]).map(convertSupabaseToLegacyFormat);
+      return enrichedStartups.map(convertSupabaseToLegacyFormat);
     },
     staleTime: 5 * 60 * 1000, // 5 minutos
     refetchOnWindowFocus: false,
@@ -246,21 +292,63 @@ export function useKanbanStartups() {
   return useQuery({
     queryKey: ['kanban-startups'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      console.log('🔍 Buscando startups do Kanban...');
+      
+      // Query principal para startups do kanban
+      const { data: startupsData, error: startupsError } = await supabase
         .from('startups')
-        .select(`
-          *,
-          startup_external_urls(*),
-          startup_team_members(*),
-          startup_topics(*),
-          startup_tags(*)
-        `)
+        .select('*')
         .eq('show_in_kanban', true)
         .order('name');
 
-      if (error) throw error;
+      if (startupsError) throw startupsError;
 
-      return (data as any[]).map(convertSupabaseToLegacyFormat);
+      // Enriquecer dados da mesma forma que useStartups
+      const enrichedStartups = await Promise.all(
+        startupsData.map(async (startup) => {
+          try {
+            const { data: externalUrls } = await supabase
+              .from('startup_external_urls')
+              .select('homepage, angellist, crunchbase, instagram, twitter, facebook, linkedin, youtube, alternative_website')
+              .eq('startup_id', startup.id)
+              .maybeSingle();
+
+            const { data: teamMembers } = await supabase
+              .from('startup_team_members')
+              .select('member_id, name, job_title, bio, avatar_url, first_name, last_name, email, twitter_url, github_url, facebook_url, city, country_name, industry_name')
+              .eq('startup_id', startup.id);
+
+            const { data: topics } = await supabase
+              .from('startup_topics')
+              .select('topic_id, topic_name, topic_type')
+              .eq('startup_id', startup.id);
+
+            const { data: tags } = await supabase
+              .from('startup_tags')
+              .select('tag_name, created_by')
+              .eq('startup_id', startup.id);
+
+            return {
+              ...startup,
+              startup_external_urls: externalUrls,
+              startup_team_members: teamMembers || [],
+              startup_topics: topics || [],
+              startup_tags: tags || []
+            };
+          } catch (error) {
+            console.warn(`⚠️ Erro ao enriquecer dados da startup do kanban ${startup.name}:`, error);
+            return {
+              ...startup,
+              startup_external_urls: {},
+              startup_team_members: [],
+              startup_topics: [],
+              startup_tags: []
+            };
+          }
+        })
+      );
+
+      return enrichedStartups.map(convertSupabaseToLegacyFormat);
     },
     staleTime: 5 * 60 * 1000,
   });
