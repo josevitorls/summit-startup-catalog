@@ -24,7 +24,7 @@ export function useMigrationControl() {
       return data as MigrationControlState;
     },
     staleTime: 500,
-    refetchInterval: 2000, // Polling mais frequente para detectar mudanças
+    refetchInterval: 1000, // Polling mais agressivo para detectar mudanças rapidamente
   });
 }
 
@@ -119,15 +119,15 @@ export function useResetMigration() {
   });
 }
 
-// Nova função para forçar reset do estado travado
-export function useForceUnstuck() {
+// NOVA FUNÇÃO URGENTE: Forçar continuação imediata
+export function useForceResume() {
   const queryClient = useQueryClient();
   
   return useMutation({
     mutationFn: async () => {
-      console.log('🚨 Forçando desbloqueio da migração travada...');
+      console.log('🚨 FORÇA MÁXIMA: Continuando migração AGORA...');
       
-      // Resetar diretamente o estado de controle
+      // Resetar estado completamente
       const { data: controlData, error: fetchError } = await supabase
         .from('migration_control')
         .select('id')
@@ -135,7 +135,8 @@ export function useForceUnstuck() {
 
       if (fetchError) throw fetchError;
       
-      const { error } = await supabase
+      // Força reset completo
+      const { error: resetError } = await supabase
         .from('migration_control')
         .update({ 
           is_running: false,
@@ -144,19 +145,20 @@ export function useForceUnstuck() {
         })
         .eq('id', controlData.id);
 
-      if (error) throw error;
+      if (resetError) throw resetError;
       
-      // Aguardar um momento
+      // Aguardar reset
       await new Promise(resolve => setTimeout(resolve, 500));
       
       // Chamar migração imediatamente
+      console.log('🚀 Invocando edge function para continuar...');
       const { data: migrationResult, error: migrationError } = await supabase.functions.invoke('migrate-data');
       
       if (migrationError) throw migrationError;
       return migrationResult;
     },
     onSuccess: () => {
-      console.log('✅ Migração desbloqueada e retomada');
+      console.log('✅ Migração forçada com sucesso');
       queryClient.invalidateQueries({ queryKey: ['migration-control'] });
       queryClient.invalidateQueries({ queryKey: ['migration-progress'] });
     },
