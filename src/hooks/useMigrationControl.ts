@@ -35,10 +35,17 @@ export function usePauseMigration() {
     mutationFn: async () => {
       console.log('🛑 Pausando migração...');
       
+      const { data: controlData, error: fetchError } = await supabase
+        .from('migration_control')
+        .select('id')
+        .single();
+
+      if (fetchError) throw fetchError;
+
       const { error } = await supabase
         .from('migration_control')
         .update({ is_paused: true })
-        .eq('id', (await supabase.from('migration_control').select('id').single()).data.id);
+        .eq('id', controlData.id);
 
       if (error) throw error;
     },
@@ -57,15 +64,20 @@ export function useResumeMigration() {
       console.log('▶️ Retomando migração...');
       
       // Primeiro, despausar e resetar is_running se necessário
-      const { data: controlData } = await supabase.from('migration_control').select('*').single();
-      
+      const { data: controlData, error: fetchError } = await supabase
+        .from('migration_control')
+        .select('*')
+        .single();
+
+      if (fetchError) throw fetchError;
+
       const { error: unpauseError } = await supabase
         .from('migration_control')
         .update({ 
           is_paused: false,
           is_running: false // Resetar para evitar travamento
         })
-        .eq('id', controlData.data.id);
+        .eq('id', controlData.id);
 
       if (unpauseError) throw unpauseError;
 
@@ -116,7 +128,12 @@ export function useForceUnstuck() {
       console.log('🚨 Forçando desbloqueio da migração travada...');
       
       // Resetar diretamente o estado de controle
-      const { data: controlData } = await supabase.from('migration_control').select('id').single();
+      const { data: controlData, error: fetchError } = await supabase
+        .from('migration_control')
+        .select('id')
+        .single();
+
+      if (fetchError) throw fetchError;
       
       const { error } = await supabase
         .from('migration_control')
@@ -125,7 +142,7 @@ export function useForceUnstuck() {
           is_paused: false,
           updated_at: new Date().toISOString()
         })
-        .eq('id', controlData.data.id);
+        .eq('id', controlData.id);
 
       if (error) throw error;
       
