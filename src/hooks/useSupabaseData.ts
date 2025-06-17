@@ -411,7 +411,16 @@ export function useMigrationProgress() {
 
       if (error) throw error;
 
-      return data as MigrationProgress[];
+      // Garantir que apenas temos 1 registro por arquivo (último registro)
+      const uniqueProgress = new Map();
+      data.forEach(progress => {
+        const existing = uniqueProgress.get(progress.file_name);
+        if (!existing || new Date(progress.started_at) > new Date(existing.started_at)) {
+          uniqueProgress.set(progress.file_name, progress);
+        }
+      });
+
+      return Array.from(uniqueProgress.values()) as MigrationProgress[];
     },
     staleTime: 500, // Mais agressivo para controle manual
     refetchInterval: 1000, // Refetch a cada 1 segundo para controle em tempo real

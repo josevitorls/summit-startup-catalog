@@ -24,6 +24,8 @@ export function MigrationProgressComponent({ isVisible }: MigrationProgressProps
   const processingFiles = progressData.filter(p => p.status === 'processing').length;
   
   const totalProgress = (completedFiles / totalFiles) * 100;
+  
+  // Calcular total correto de startups processadas (somar apenas do último registro por arquivo)
   const totalProcessed = progressData.reduce((sum, p) => sum + p.processed_count, 0);
   const totalExpected = progressData.reduce((sum, p) => sum + p.total_count, 0);
 
@@ -31,19 +33,17 @@ export function MigrationProgressComponent({ isVisible }: MigrationProgressProps
   const isComplete = completedFiles === totalFiles && failedFiles === 0;
   const hasIssues = failedFiles > 0;
 
-  // Calcular métricas de performance
-  const avgProcessingTime = progressData.length > 0 
-    ? progressData.reduce((sum, p) => {
-        if (p.started_at && p.completed_at) {
-          const start = new Date(p.started_at).getTime();
-          const end = new Date(p.completed_at).getTime();
-          return sum + (end - start);
-        }
-        return sum;
-      }, 0) / completedFiles
+  // Calcular métricas de performance baseadas nos dados reais
+  const completedProgress = progressData.filter(p => p.status === 'completed' && p.started_at && p.completed_at);
+  const avgProcessingTime = completedProgress.length > 0 
+    ? completedProgress.reduce((sum, p) => {
+        const start = new Date(p.started_at).getTime();
+        const end = new Date(p.completed_at!).getTime();
+        return sum + (end - start);
+      }, 0) / completedProgress.length
     : 0;
 
-  const startupsPerSecond = avgProcessingTime > 0 
+  const startupsPerSecond = avgProcessingTime > 0 && totalProcessed > 0
     ? Math.round((totalProcessed / (avgProcessingTime / 1000)) * 100) / 100
     : 0;
 
